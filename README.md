@@ -61,6 +61,7 @@ All numbers from runs on real kernels; the scripts are in `tests/`.
 | BTF carved from raw memory dumps of a running Debian 13 VM (1 GB, ELF core) | 113,902 types found in about 1 s |
 | `--asserts`: 59,761 generated `_Static_assert` size and offset checks compiled with gcc against the generated header, Debian 13 vmlinux | all pass |
 | Split BTF of a kernel module (`nf_tables.ko`, Debian 13) with `--base vmlinux` | header generated and compiles |
+| Public x86-64 Android GKI kernel 6.1.84 (`kernel-6.1` + its `System.map`) | 134,947 BTF types; 58,909 of 61,982 named kernel functions (95.0%) have a BTF prototype to apply |
 | `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 36 IDA API names used, 0 missing |
 | `tests/test_plugin_stub.py` with fake `ida_*` modules | full flow passes |
 
