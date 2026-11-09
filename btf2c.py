@@ -168,6 +168,8 @@ class Generator:
             return self.decl(t.ref, inner) if not const else self.decl_const(t.ref, inner)
         if t.kind == B.PTR:
             target = self.strip(t.ref)
+            if target is not None and target.kind == B.ARRAY and target.data[2] == 0:
+                return self.decl(target.data[0], "*" + inner)  # same layout; IDA's parser is unproven on (*x)[0]
             if target is not None and target.kind in (B.ARRAY, B.FUNC_PROTO):
                 return self.decl(t.ref, "(*%s)" % inner)
             return self.decl(t.ref, "*" + inner)
