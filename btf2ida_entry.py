@@ -24,7 +24,7 @@ if HERE not in sys.path:
 import btf as B  # noqa: E402  (needs the plugin folder on sys.path)
 import btf2c  # noqa: E402
 
-BTF_FILTER = "FILTER vmlinux or raw BTF|*|\n"
+FILE_PROMPT = "FILTER vmlinux or raw BTF|*\nThis is a kernel module: choose vmlinux (or a copy of /sys/kernel/btf/vmlinux)"
 SUFFIXES = (".isra.", ".constprop.", ".part.", ".cold", ".lto_priv")  # the compiler may have changed the ABI
 
 
@@ -106,7 +106,9 @@ def find_btf():
         except B.NeedsBase:
             if attempt:
                 raise
-            path = ida_kernwin.ask_file(False, BTF_FILTER, "This is a kernel module: choose vmlinux (or a copy of /sys/kernel/btf/vmlinux)")
+            ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
+            path = ida_kernwin.ask_file(False, None, FILE_PROMPT)
+            ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
             if not path:
                 return None, ""
             with open(path, "rb") as handle:
@@ -156,8 +158,7 @@ def report(source, generator, failed, result):
 def run_import():
     data, source = find_btf()
     if data is None:
-        ida_kernwin.warning("BTF2IDA: no BTF found in the input file or the loaded segments.")
-        return None
+        raise B.BTFError("no BTF found in the input file or the loaded segments.")
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4
     generator = btf2c.Generator(data, pointer_size)
     declarations = generator.declarations()
@@ -178,14 +179,17 @@ def run_import():
 
 class ApplyBTF(ida_kernwin.action_handler_t):
     def activate(self, ctx):
+        problem = None
         ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
         try:
             message = run_import()
         except B.BTFError as error:
             message = None
-            ida_kernwin.warning("BTF2IDA: %s" % error)
+            problem = str(error)
         finally:
             ida_kernwin.hide_wait_box()
+        if problem:
+            ida_kernwin.warning("BTF2IDA: %s" % problem)
         if message:
             ida_kernwin.msg("[BTF2IDA] %s\n" % message)
             ida_kernwin.info(message)

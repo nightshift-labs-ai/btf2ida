@@ -25,7 +25,8 @@ __int8 __int16 __int32 __int64 __int128 __cdecl __stdcall __fastcall __thiscall 
 __huge __hidden __return_ptr __struct_ptr __array_ptr __unused __noreturn __pure __cppobj __unaligned __ptr32 __ptr64 __seg
 __spoils __shifted __tuple __golang __swiftcall _BOOL1 _BOOL2 _BOOL4 _BYTE _WORD _DWORD _QWORD _OWORD _TBYTE _UNKNOWN __high
 __bitmask __invbf __bin __oct __hex __dec __sbin __soct __shex __udec __float __char __segm __enum __off __offset __strlit
-__stroff __custom __invsign __invbits __lzero __tabform""".split())
+__stroff __custom __invsign __invbits __lzero __tabform
+near far huge interrupt cdecl pascal stdcall fastcall thiscall flat large small""".split())
 MODS = (B.CONST, B.VOLATILE, B.RESTRICT, B.TYPE_TAG)
 
 
@@ -364,7 +365,7 @@ class Generator:
             if t.kind in (B.STRUCT, B.UNION) and (t.name or False):
                 self.emit_struct(t)
             elif t.kind == B.TYPEDEF and not self.typedef_alias(t):
-                self.emit_typedef(t)
+                self.need_complete(t.id)  # also emits anonymous structs reached only through pointers
             elif t.kind in (B.ENUM, B.ENUM64):
                 self.emit_enum(t)
             elif t.kind == B.FUNC:
