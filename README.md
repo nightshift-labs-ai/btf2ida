@@ -12,7 +12,7 @@ It adds nothing to your binary and needs nothing installed besides the plugin.
 
 ## Why it matters
 
-A Linux kernel without its debug package is mostly `__int64 a1`, and matching headers or a debug package are often impossible to get: vendor kernels, Android devices, a kernel seen only in a memory image. The BTF is already inside the image. That is usually the difference between hours of retyping structures by hand and a readable decompilation in about a minute.
+A Linux kernel without its debug package is mostly `__int64 a1`, and matching headers or a debug package are often impossible to get: vendor kernels, Android devices, a kernel seen only in a memory image. The BTF is already inside the image. Using it replaces retyping structures by hand.
 
 ## Try it
 
