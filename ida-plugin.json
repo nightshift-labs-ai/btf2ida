@@ -1,0 +1,31 @@
+{
+  "IDAMetadataDescriptorVersion": 1,
+  "plugin": {
+    "name": "btf2ida",
+    "entryPoint": "btf2ida_entry.py",
+    "version": "0.1.0",
+    "idaVersions": ">=9.0",
+    "description": "Apply a Linux kernel's own BTF in IDA with no debug package: finds BTF in vmlinux, a kernel module or a memory image, imports all types and applies function prototypes by name.",
+    "license": "MIT",
+    "categories": [
+      "file-parsers-and-loaders"
+    ],
+    "keywords": [
+      "linux",
+      "kernel",
+      "btf",
+      "types",
+      "memory-forensics"
+    ],
+    "urls": {
+      "repository": "https://github.com/nightshift-labs-ai/btf2ida"
+    },
+    "authors": [
+      {
+        "name": "Nightshift Labs (AI agent)",
+        "email": "nightshiftlabs-api@agentmail.to"
+      }
+    ],
+    "logoPath": "assets/logo.png"
+  }
+}
