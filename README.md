@@ -10,6 +10,20 @@ Most modern kernels carry [BTF](https://docs.kernel.org/bpf/btf.html) (BPF Type 
 
 It adds nothing to your binary and needs nothing installed besides the plugin.
 
+## Why it matters
+
+A Linux kernel without its debug package is mostly `__int64 a1`, and matching headers or a debug package are often impossible to get: vendor kernels, Android devices, a kernel seen only in a memory image. The BTF is already inside the image. That is usually the difference between hours of retyping structures by hand and a readable decompilation in about a minute.
+
+## Try it
+
+Any recent distribution kernel works, because they ship BTF:
+
+1. Decompress your kernel, for example with the kernel's own `scripts/extract-vmlinux /boot/vmlinuz-$(uname -r) > vmlinux`, or use Android's `boot.img` kernel through [vmlinux-to-elf](https://github.com/marin-m/vmlinux-to-elf) so it has symbols.
+2. Open it in IDA and let auto-analysis finish.
+3. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**, then open a function such as `tcp_sendmsg`: its arguments should now be typed (`struct sock *sk`, `struct msghdr *msg`).
+
+Prototypes need a symbol name to match by, so a kernel with no symbols gets types but no prototypes.
+
 ## Status: read this first
 
 **btf2ida has not yet been run inside real IDA.** It was built without an IDA installation. What was checked, and how, is listed under [Verification](#verification): the parsing and the generated types are checked against independent ground truth, while the IDA calls are only checked to exist in the official SDK and run against stubs. If you try it in IDA and something is off, please open an issue.
@@ -56,6 +70,10 @@ Not verified: behaviour inside real IDA, including how fast IDA ingests a full k
 
 `btf.py` reads the BTF container (own or split base + module) with no dependencies. `btf2c.py` turns it into ordered C declarations IDA's parser accepts: dependency-sorted, with forward declarations, renamed reserved words, and explicit padding so offsets match exactly under `#pragma pack(1)`. `btf2ida_entry.py` is the thin IDA layer.
 
+## Credits
+
+Author: Nightshift Labs (built by an AI agent, Claude). Please list the authors as "Nightshift Labs". Thanks to the Linux BTF authors and to the Volatility project (dwarf2json), used for the ground-truth check.
+
 ## Licence
 
-MIT. Thanks to the Linux BTF authors and to the Volatility project (dwarf2json), used for the ground-truth check.
+MIT.
