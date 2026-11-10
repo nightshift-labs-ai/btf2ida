@@ -4,7 +4,9 @@ One action under Edit > Plugins: BTF2IDA: Apply kernel types and prototypes. It 
 file or the loaded segments (vmlinux, a kernel module, a raw kernel, a memory image), imports every
 struct, union, enum and typedef, then applies a prototype to each function whose name matches.
 """
+import traceback
 import mmap
+import struct
 import os
 import sys
 
@@ -14,6 +16,7 @@ import ida_ida
 import ida_idaapi
 import ida_kernwin
 import ida_nalt
+import ida_name
 import idautils
 import idc
 
@@ -23,6 +26,7 @@ if HERE not in sys.path:
 
 import btf as B  # noqa: E402  (needs the plugin folder on sys.path)
 import btf2c  # noqa: E402
+import ksymtab  # noqa: E402
 
 FILE_PROMPT = "FILTER vmlinux or raw BTF|*\nThis is a kernel module: choose vmlinux (or a copy of /sys/kernel/btf/vmlinux)"
 SUFFIXES = (".isra.", ".constprop.", ".part.", ".cold", ".lto_priv")  # the compiler may have changed the ABI
@@ -116,6 +120,39 @@ def find_btf():
     return None, ""
 
 
+def name_exports():
+    """Name exported functions from __ksymtab where the database has no name (a stripped vmlinux).
+
+    Only addresses inside code, never over a name the user gave, never a name already used.
+    Returns how many functions were named.
+    """
+    path = ida_nalt.get_input_file_path()
+    if not path or not os.path.isfile(path):
+        return 0
+    with open(path, "rb") as handle:
+        try:
+            blob = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
+        except (OSError, ValueError):
+            return 0
+        try:
+            found = ksymtab.exported(blob)
+        except (ValueError, IndexError, struct.error):
+            return 0
+        finally:
+            blob.close()
+    named = 0
+    for address, (name, is_code) in sorted(found.items()):
+        if not is_code or ida_bytes.has_user_name(ida_bytes.get_flags(address)):
+            continue
+        if idc.get_name_ea_simple(name) != idc.BADADDR:
+            continue
+        if ida_funcs.get_func(address) is None:
+            ida_funcs.add_func(address)
+        if ida_name.set_name(address, name, ida_name.SN_NOCHECK | ida_name.SN_NOWARN):
+            named += 1
+    return named
+
+
 def apply_prototypes(prototypes, progress=None):
     """Type every function found by exact name; compiler-rewritten clones are left alone."""
     result = {"applied": 0, "rejected": [], "absent": 0, "not_function": 0, "clones": 0}
@@ -142,11 +179,12 @@ def apply_prototypes(prototypes, progress=None):
     return result
 
 
-def report(source, generator, failed, result):
+def report(source, generator, failed, result, named=0):
     stats = generator.stats
     lines = [
         "BTF from %s: %d types" % (source, generator.btf.count),
         "Imported %d structs, %d unions, %d enums, %d typedefs (%d declarations rejected by IDA)" % (stats["structs"], stats["unions"], stats["enums"], stats["typedefs"], len(failed)),
+        "Named %d exported functions from __ksymtab (the database had no name there)" % named,
         "Prototypes applied to %d functions; rejected by IDA %d; not in this database %d; name is not a function start %d" % (result["applied"], len(result["rejected"]), result["absent"], result["not_function"]),
         "Left untyped on purpose: %d compiler clones (.isra, .constprop, .part, .cold), their ABI may differ" % result["clones"],
     ]
@@ -174,10 +212,27 @@ def run_import():
         return ida_kernwin.user_cancelled()
 
     failed = import_in_batches(declarations, parse_batch, progress=types_progress)
-    return report(source, generator, failed, apply_prototypes(prototypes, proto_progress))
+    named = name_exports() if prototypes else 0
+    return report(source, generator, failed, apply_prototypes(prototypes, proto_progress), named)
 
+
+
+ISSUES_URL = "https://github.com/nightshift-labs-ai/btf2ida/issues"
+
+
+def guarded(activate):
+    """Any unexpected error becomes one warning plus the traceback in the Output window."""
+    def wrapper(self, ctx):
+        try:
+            return activate(self, ctx)
+        except Exception:  # noqa: BLE001  (last line of defence inside IDA)
+            ida_kernwin.msg("[BTF2IDA] unexpected error:\n%s\n" % traceback.format_exc())
+            ida_kernwin.warning("BTF2IDA: unexpected error, details are in the Output window.\nPlease report it: %s" % ISSUES_URL)
+            return 0
+    return wrapper
 
 class ApplyBTF(ida_kernwin.action_handler_t):
+    @guarded
     def activate(self, ctx):
         problem = None
         ida_kernwin.show_wait_box("BTF2IDA: reading BTF")

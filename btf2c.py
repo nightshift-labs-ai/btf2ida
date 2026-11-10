@@ -10,7 +10,6 @@ import sys
 
 import btf as B
 
-sys.setrecursionlimit(20000)
 IDENT = re.compile(r"[^0-9A-Za-z_]")
 
 # Names a C compiler accepts but IDA's parser may not (same list as MemLens): C and C++ keywords

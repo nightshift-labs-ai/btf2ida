@@ -7,7 +7,7 @@ Open a Linux kernel in IDA and get its **real types and function prototypes** wi
 Most current distribution and Android GKI kernels carry [BTF](https://docs.kernel.org/bpf/btf.html) (BPF Type Format, built in with `CONFIG_DEBUG_INFO_BTF`), a compact description of every kernel struct, union, enum and function signature. Many embedded and older vendor kernels do not. Where it exists, it is there in a stripped `vmlinux`, in Android GKI kernels, and in RAM. btf2ida finds it and applies it:
 
 - **Every kernel type**: all structs, unions, enums and typedefs imported as IDA local types, every member at its exact byte offset (packed and anonymous members included). Bitfields are kept as raw storage bytes with their names in a comment, and zero-length trailing arrays appear only as comments, so those members are not separately visible in IDA.
-- **Function prototypes by name**: each function in the database whose name has a BTF signature gets that signature, so the decompiler shows `struct sock *sk` instead of `__int64 a1`.
+- **Function prototypes by name**: each function in the database whose name has a BTF signature gets that signature, so the decompiler shows `struct sock *sk` instead of `__int64 a1`. On a stripped kernel, exported functions are first named from `__ksymtab`.
 - **Finds BTF on its own**: from the input file (`vmlinux`, a kernel module `.ko`, raw BTF, a memory image, by carving) or from the loaded segments. For a kernel module it asks for the matching `vmlinux` to resolve split BTF. Raw BTF or a raw memory image gives types only: prototypes need function names in the database.
 
 It adds nothing to your binary and needs nothing installed besides the plugin.
@@ -31,7 +31,7 @@ int vfs_getattr(const struct path *path, struct kstat *stat, u32 request_mask, u
 
 Outside IDA on this file: BTF found by carving in 0.3 s, 50,366 prototypes, matching 46,880 of the 98,063 kernel function symbols that have no module prefix or compiler suffix.
 
-Your own kernel: the `vmlinux` inside a distribution's `vmlinuz` (for example from `scripts/extract-vmlinux`) has its symbol table stripped, so btf2ida applies the types but no prototypes. To get prototypes, give IDA a kernel ELF with symbols, for example one rebuilt from the kernel's own kallsyms by [vmlinux-to-elf](https://github.com/marin-m/vmlinux-to-elf) (how we would do it for an Android `boot.img`; not tried here on a distribution `vmlinuz`).
+Your own kernel: the `vmlinux` inside a distribution's `vmlinuz` (for example from `scripts/extract-vmlinux`) has its symbol table stripped. btf2ida then names the **exported** functions from the kernel's own `__ksymtab` (only where the database has no name, never over yours) and applies their prototypes; the other functions get no prototype. Measured outside IDA on `objcopy -S` copies of two distribution kernels: Debian 13 6.12, 10,497 exported functions named, all at the same address as in the debug symbol table, 10,333 with a prototype (`tcp_sendmsg` and `vfs_getattr` among them); Ubuntu 26.04 7.0, 15,123 named, 13,865 with a prototype. For every function, give IDA a kernel ELF with all its symbols, for example one rebuilt from kallsyms by [vmlinux-to-elf](https://github.com/marin-m/vmlinux-to-elf) (not tried here on a distribution `vmlinuz`).
 
 ## Status: read this first
 
@@ -71,7 +71,8 @@ All numbers from runs on real kernels; the scripts are in `tests/`.
 | `--asserts`: 59,761 generated `_Static_assert` size and offset checks compiled with gcc against the generated header, Debian 13 vmlinux | all pass |
 | Split BTF of a kernel module (`nf_tables.ko`, Debian 13) with `--base vmlinux` | header generated and compiles |
 | Public x86-64 Android GKI kernel 6.1.84 (`kernel-6.1` + its `System.map`) | 134,947 BTF types; 58,909 of 61,982 named kernel functions (95.0%) have a BTF prototype to apply (names from `System.map`, which the plugin does not read: in IDA the kernel needs its symbols, for example via vmlinux-to-elf) |
-| `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 36 IDA API names used, 0 missing |
+| `tests/check_ksymtab.py`: names from `__ksymtab` of a stripped (`objcopy -S`) vmlinux vs the debug vmlinux's symbol table | Debian 13 6.12: 10,497 of 10,497 exported code addresses match, 10,333 have a BTF prototype; Ubuntu 26.04 7.0: 15,123 of 15,123, 13,865 |
+| `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 42 IDA API names used, 0 missing |
 | `tests/test_plugin_stub.py` with fake `ida_*` modules | full flow passes |
 
 Not verified: behaviour inside real IDA, including how fast IDA ingests a full kernel's types and whether it rejects specific declarations (the plugin is written to split rejected batches and report them instead of failing; that relies on IDA ignoring a redeclaration when a batch is parsed again, which has not been observed in IDA). Only x86-64 kernels were used in the offline checks.

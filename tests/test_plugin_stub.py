@@ -111,7 +111,13 @@ dbytes = types.ModuleType("ida_bytes")
 dbytes.get_bytes = lambda ea, size: raw
 nalt = types.ModuleType("ida_nalt")
 nalt.get_input_file_path = lambda: ""
-sys.modules.update(ida_kernwin=kw, ida_idaapi=api, ida_ida=ida, idc=idc, ida_funcs=funcs, idautils=autos, ida_bytes=dbytes, ida_nalt=nalt)
+dbytes.get_flags = lambda ea: 1 if ea == 0x5000 else 0          # 0x5000 carries a user name
+dbytes.has_user_name = lambda flags: flags == 1
+funcs.add_func = lambda ea: calls.append(("add_func", ea)) or True
+iname = types.ModuleType("ida_name")
+iname.SN_NOCHECK, iname.SN_NOWARN = 1, 256
+iname.set_name = lambda ea, n, f: calls.append(("set_name", ea, n, f)) or True
+sys.modules.update(ida_kernwin=kw, ida_idaapi=api, ida_ida=ida, idc=idc, ida_funcs=funcs, idautils=autos, ida_bytes=dbytes, ida_nalt=nalt, ida_name=iname)
 
 import btf2ida_entry as m  # noqa: E402
 
@@ -125,6 +131,29 @@ assert "struct task {" in parsed and "#pragma" not in parsed
 message = [c[1] for c in calls if c[0] == "info"][0]
 assert "applied to 1 functions" in message and "not in this database 1" in message and "not a function start 1" in message and "1 compiler clones" in message, message
 assert m.import_in_batches(["a;", "BAD;", "b;"], lambda t: t.count("BAD"), batch=2) == ["BAD;"]
+assert "Named 0 exported functions" in message, message
+# __ksymtab naming: skip data, user names and names already in use; create a missing function first.
+with tempfile.NamedTemporaryFile() as fake_input:
+    fake_input.write(b"placeholder")
+    fake_input.flush()
+    nalt.get_input_file_path = lambda: fake_input.name
+    m.ksymtab.exported = lambda blob: {0x1000: ("taken_elsewhere", True), 0x3000: ("tcp_sendmsg", True),
+                                       0x4000: ("some_data", False), 0x5000: ("user_named", True),
+                                       0x6000: ("get_it", True)}
+    idc.get_name_ea_simple = lambda n: 0x1000 if n in ("taken_elsewhere", "get_it") else idc.BADADDR
+    del calls[:]
+    assert m.name_exports() == 1
+    assert ("set_name", 0x3000, "tcp_sendmsg", 257) in calls and ("add_func", 0x3000) in calls, calls
+    assert [c for c in calls if c[0] == "set_name"] == [("set_name", 0x3000, "tcp_sendmsg", 257)], calls
+# An unexpected error inside the action becomes one warning, not a traceback dialog.
+def boom():
+    raise IndexError("synthetic")
+m.run_import = boom
+del calls[:]
+assert m.ApplyBTF().activate(None) == 0
+warns = [c[1] for c in calls if c[0] == "warn"]
+assert len(warns) == 1 and "unexpected error" in warns[0] and "/btf2ida/issues" in warns[0], calls
+assert any(c[0] == "msg" and "IndexError: synthetic" in c[1] for c in calls), calls
 plugin.term()
 assert ("unreg", "btf2ida:apply") in calls
 print("stub test OK (fake IDA modules)")
