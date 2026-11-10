@@ -163,7 +163,7 @@ def name_exports():
 
 def apply_prototypes(prototypes, progress=None):
     """Type every function found by exact name; compiler-rewritten clones are left alone."""
-    result = {"applied": 0, "rejected": [], "absent": 0, "not_function": 0, "clones": 0}
+    result = {"applied": 0, "rejected": [], "absent": 0, "not_function": 0, "clones": 0, "kept": 0}
     wanted = dict(prototypes)
     for index, (name, declaration) in enumerate(prototypes):
         if progress and index % 500 == 0 and progress(index, len(prototypes)):
@@ -175,6 +175,9 @@ def apply_prototypes(prototypes, progress=None):
         function = ida_funcs.get_func(address)
         if function is None or function.start_ea != address:
             result["not_function"] += 1
+            continue
+        if ida_nalt.is_userti(address):  # typed by hand or by an earlier run: never overwrite it
+            result["kept"] += 1
             continue
         if idc.SetType(address, declaration + ";"):
             result["applied"] += 1
@@ -195,6 +198,7 @@ def report(source, generator, failed, result, named=0):
         "Named %d exported functions from __ksymtab (the database had no name there)" % named,
         "Prototypes applied to %d functions; rejected by IDA %d; not in this database %d; name is not a function start %d" % (result["applied"], len(result["rejected"]), result["absent"], result["not_function"]),
         "Left untyped on purpose: %d compiler clones (.isra, .constprop, .part, .cold), their ABI may differ" % result["clones"],
+        "Kept as they were: %d functions that already had a user-set type" % result["kept"],
     ]
     if failed:
         lines.append("First rejected declaration: %s" % failed[0][:200])

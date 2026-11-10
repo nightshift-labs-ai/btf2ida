@@ -128,6 +128,8 @@ dbytes = types.ModuleType("ida_bytes")
 dbytes.get_bytes = lambda ea, size: raw
 nalt = types.ModuleType("ida_nalt")
 nalt.get_input_file_path = lambda: ""
+user_typed = set()
+nalt.is_userti = lambda ea: ea in user_typed
 dbytes.get_flags = lambda ea: 1 if ea == 0x5000 else 0          # 0x5000 carries a user name
 dbytes.has_user_name = lambda flags: flags == 1
 funcs.add_func = lambda ea: calls.append(("add_func", ea)) or True
