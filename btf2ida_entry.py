@@ -192,7 +192,7 @@ class ApplyBTF(ida_kernwin.action_handler_t):
             ida_kernwin.warning("BTF2IDA: %s" % problem)
         if message:
             ida_kernwin.msg("[BTF2IDA] %s\n" % message)
-            ida_kernwin.info(message)
+            ida_kernwin.info(message.replace("%", "%%"))  # info() is printf-style in IDAPython (not wrapped like msg/warning)
         return 1
 
     def update(self, ctx):
