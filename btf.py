@@ -56,13 +56,31 @@ class BTF:
         self.str_end = self.str_start + len(self.strings)
         self.first_id = base.next_id if base else 1
         self.own = []
+        self._base_refs = self._base_misses = 0
         self._parse(bytes(blob[start + head.type_off:start + head.type_off + head.type_len]))
         self.next_id = self.first_id + len(self.own)
+        # A module's split BTF names many strings of its base. With the wrong vmlinux those offsets land
+        # in the middle of unrelated strings: refuse instead of producing garbage names.
+        if base is not None and self._base_refs and self._base_misses > 0.02 * self._base_refs:
+            raise BTFError("this module's BTF does not match the chosen vmlinux: %d of %d base string references "
+                           "point into the middle of a string" % (self._base_misses, self._base_refs))
+
+    def is_string_start(self, offset):
+        if offset < self.str_start:
+            return self.base.is_string_start(offset) if self.base is not None else False
+        relative = offset - self.str_start
+        if relative >= len(self.strings):
+            return False
+        return relative == 0 or self.strings[relative - 1] == 0
 
     def string(self, offset):
         if offset < self.str_start:
             if self.base is None:
                 raise BTFError("string offset out of range")
+            if offset:
+                self._base_refs += 1
+                if not self.base.is_string_start(offset):
+                    self._base_misses += 1
             return self.base.string(offset)
         relative = offset - self.str_start
         if relative >= len(self.strings):

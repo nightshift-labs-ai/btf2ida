@@ -74,6 +74,23 @@ try:  # split BTF: strings that do not start with NUL
 except B.NeedsBase:
     pass
 
+# Split BTF checked against its base: a name offset in the middle of a base string means the wrong vmlinux.
+base_b = Build()
+base_b.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))
+base_btf = B.BTF(base_b.blob())
+def split_blob(name_off):
+    own_types = struct.pack("<III", name_off, 2 << 24, 1)  # pointer to type 1, named from the base strings
+    own_strs = b"x\0"
+    return struct.pack("<HBBIIIII", 0xEB9F, 1, 0, 24, 0, len(own_types), len(own_types), len(own_strs)) + own_types + own_strs
+assert B.BTF(split_blob(1), base=base_btf).own[0].name == "int"
+try:
+    B.BTF(split_blob(2), base=base_btf)
+    raise SystemExit("a mismatched base was accepted")
+except B.NeedsBase:
+    raise
+except B.BTFError as error:
+    assert "does not match the chosen vmlinux" in str(error), error
+
 calls = []
 kw = types.ModuleType("ida_kernwin")
 kw.action_handler_t = object

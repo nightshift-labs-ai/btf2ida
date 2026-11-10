@@ -70,6 +70,7 @@ All numbers from runs on real kernels; the scripts are in `tests/`.
 | BTF carved from raw memory dumps of a running Debian 13 VM (1 GB, ELF core) | 113,902 types found in a few seconds (1 to 3 s measured) |
 | `--asserts`: 59,761 generated `_Static_assert` size and offset checks compiled with gcc against the generated header, Debian 13 vmlinux | all pass |
 | Split BTF of a kernel module (`nf_tables.ko`, Debian 13) with `--base vmlinux` | header generated and compiles |
+| The same module with the wrong base (the WSL 6.18 kernel's BTF) | refused with a clear error: 2,419 of 2,601 base string references land mid-string; with its own Debian 13 base, 0 of 1,090 |
 | Public x86-64 Android GKI kernel 6.1.84 (`kernel-6.1` + its `System.map`) | 134,947 BTF types; 58,909 of 61,982 named kernel functions (95.0%) have a BTF prototype to apply (names from `System.map`, which the plugin does not read: in IDA the kernel needs its symbols, for example via vmlinux-to-elf) |
 | `tests/check_ksymtab.py`: names from `__ksymtab` of a stripped (`objcopy -S`) vmlinux vs the debug vmlinux's symbol table | Debian 13 6.12: 10,497 of 10,497 exported code addresses match, 10,333 have a BTF prototype; Ubuntu 26.04 7.0: 15,123 of 15,123, 13,865 |
 | `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 42 IDA API names used, 0 missing |
