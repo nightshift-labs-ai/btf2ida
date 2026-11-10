@@ -35,7 +35,7 @@ int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size);
 int vfs_getattr(const struct path *path, struct kstat *stat, u32 request_mask, unsigned int query_flags);
 ```
 
-Outside IDA on this file: BTF found by carving in 0.3 s, 50,366 prototypes, matching 46,904 of the 51,119 kernel function symbols that have no module prefix, compiler suffix or `__pfx_` padding prefix (91.8%).
+Outside IDA on this file: BTF found by carving in 0.3 s, 50,366 prototypes, matching 46,904 of the 51,116 kernel function symbols that have no module prefix, compiler suffix or `__pfx_` padding prefix (91.8%).
 
 Your own kernel: on x86-64, the `vmlinux` inside a distribution's `vmlinuz` (for example from `scripts/extract-vmlinux`) is an ELF with its symbol table stripped. btf2ida then names the **exported** functions from the kernel's own `__ksymtab` (only where the database has no name, never over yours) and applies their prototypes; the other functions get no prototype. Measured outside IDA on `objcopy -S` copies of two distribution kernels: Debian 13 6.12, 10,497 exported functions named, all at the same address as in the debug symbol table, 10,333 with a prototype (`tcp_sendmsg` and `vfs_getattr` among them); Ubuntu 26.04 7.0, 14,717 named, 13,865 with a prototype. An arm64 or Android kernel usually comes as a raw `Image`, which gets types only. For every function, give IDA a kernel ELF with all its symbols, for example one rebuilt from kallsyms by [vmlinux-to-elf](https://github.com/marin-m/vmlinux-to-elf) (not tried here on a distribution `vmlinuz`).
 
