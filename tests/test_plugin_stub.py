@@ -158,6 +158,10 @@ with tempfile.NamedTemporaryFile() as fake_input:
                                        0x4000: ("some_data", False), 0x5000: ("user_named", True),
                                        0x6000: ("get_it", True)}
     idc.get_name_ea_simple = lambda n: 0x1000 if n in ("taken_elsewhere", "get_it") else idc.BADADDR
+    m.ksymtab.probe = lambda blob: (0x9000, b"zz")      # database does not map the file the same way
+    del calls[:]
+    assert m.name_exports() == 0 and not [c for c in calls if c[0] == "set_name"], calls
+    m.ksymtab.probe = lambda blob: (0x9000, raw)         # matches what the fake get_bytes returns
     del calls[:]
     assert m.name_exports() == 1
     assert ("set_name", 0x3000, "tcp_sendmsg", 257) in calls and ("add_func", 0x3000) in calls, calls

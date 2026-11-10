@@ -136,12 +136,20 @@ def name_exports():
             return 0
         try:
             found = ksymtab.exported(blob)
+            check = ksymtab.probe(blob)
         except (ValueError, IndexError, struct.error):
             return 0
         finally:
             blob.close()
+    # The addresses come from the file on disk: use them only if the database maps it unchanged.
+    if check is None or ida_bytes.get_bytes(check[0], len(check[1])) != check[1]:
+        return 0
     named = 0
-    for address, (name, is_code) in sorted(found.items()):
+    for index, (address, (name, is_code)) in enumerate(sorted(found.items())):
+        if index % 500 == 0:
+            ida_kernwin.replace_wait_box("BTF2IDA: naming exported functions (%d of %d)" % (index, len(found)))
+            if ida_kernwin.user_cancelled():
+                break
         if not is_code or ida_bytes.has_user_name(ida_bytes.get_flags(address)):
             continue
         if idc.get_name_ea_simple(name) != idc.BADADDR:
@@ -212,7 +220,7 @@ def run_import():
         return ida_kernwin.user_cancelled()
 
     failed = import_in_batches(declarations, parse_batch, progress=types_progress)
-    named = name_exports() if prototypes else 0
+    named = name_exports() if prototypes and not ida_kernwin.user_cancelled() else 0
     return report(source, generator, failed, apply_prototypes(prototypes, proto_progress), named)
 
 

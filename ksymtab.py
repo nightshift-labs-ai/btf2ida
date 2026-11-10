@@ -3,7 +3,8 @@
 A distribution vmlinux (for example from scripts/extract-vmlinux) has no .symtab, but every
 EXPORT_SYMBOL still has an entry in __ksymtab / __ksymtab_gpl that points at the symbol and at
 its name in __ksymtab_strings. Since Linux 4.19 on x86-64 and arm64 the entries are 32-bit
-place-relative offsets (value, name, namespace); older kernels store absolute pointers.
+place-relative offsets: (value, name) up to 5.3, (value, name, namespace) from 5.4; older kernels
+store absolute pointers. Only 64-bit little-endian ELF files are read (x86-64 vmlinux).
 
     python3 ksymtab.py vmlinux     # prints address, kind, name
 
@@ -12,7 +13,7 @@ No dependencies; no IDA.
 import struct
 import sys
 
-SHF_EXECINSTR = 4
+SHF_WRITE, SHF_EXECINSTR = 1, 4
 TABLES = (b"__ksymtab", b"__ksymtab_gpl")
 
 
@@ -56,13 +57,14 @@ def _entries(table, blob, name_at):
     """Yield (value, name) for one table, trying the prel32 layout first, then absolute pointers."""
     base, data = table[3], blob[table[4]:table[4] + table[5]]
     for size, decode in (
-            (12, lambda i, v, n: (base + i + v, base + i + 4 + n)),   # prel32: value_offset, name_offset, ns
+            (12, lambda i, v, n: (base + i + v, base + i + 4 + n)),   # prel32 5.4+: value, name, namespace
+            (8, lambda i, v, n: (base + i + v, base + i + 4 + n)),    # prel32 4.19-5.3: value, name
             (16, None), (24, None)):                                 # absolute: value, name[, namespace]
         if not data or len(data) % size:
             continue
         rows = []
         for i in range(0, len(data), size):
-            if size == 12:
+            if size in (8, 12):
                 v, n = struct.unpack_from("<ii", data, i)
                 value, name_addr = decode(i, v, n)
                 value &= 0xFFFFFFFFFFFFFFFF
@@ -82,13 +84,23 @@ def exported(blob):
     if strings is None:
         return {}
     name_at = _reader(strings, blob)
-    code = [(s[3], s[3] + s[5]) for s in raw if s[2] & SHF_EXECINSTR and s[3]]
+    code = [(s[3], s[3] + s[5]) for s in raw if s[2] & SHF_EXECINSTR and not s[2] & SHF_WRITE and s[3]]
     out = {}
     for t in TABLES:
         if t in secs:
             for value, name in _entries(secs[t], blob, name_at):
                 out.setdefault(value, (name, any(lo <= value < hi for lo, hi in code)))
     return out
+
+
+def probe(blob, size=64):
+    """(address, bytes) of the start of __ksymtab_strings, to check a database still maps the file the same way."""
+    secs, _ = _sections(blob)
+    strings = secs.get(b"__ksymtab_strings")
+    if strings is None or not strings[5]:
+        return None
+    n = min(size, strings[5])
+    return strings[3], bytes(blob[strings[4]:strings[4] + n])
 
 
 def main(argv):
