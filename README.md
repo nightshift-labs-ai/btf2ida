@@ -18,7 +18,13 @@ A Linux kernel without its debug package is mostly `__int64 a1`, and matching he
 
 ## Try it
 
-Fastest: a ready kernel with symbols and BTF. Download `memlens-demo-debian13.zip` (22 MB) from the [MemLens demo-data release](https://github.com/nightshift-labs-ai/memlens/releases/tag/demo-data), our companion plugin that exports a running kernel from a memory image.
+Smallest try, nothing to download: `demo/toy_kernel.elf` (17 KB) is a small program with kernel-style types, built with `gcc -gbtf`, so it carries BTF and no DWARF and IDA has no other source for these types (`demo/build.sh` rebuilds it).
+
+1. Open `demo/toy_kernel.elf` in IDA.
+2. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**.
+3. `demo_open` should become `int demo_open(struct demo_device *dev, unsigned int flags)` (all five prototypes are in `demo/expected_prototypes.txt`), and Local Types should hold `struct demo_device` as in `demo/expected_types.h`: bitfields as raw bytes with their names in a comment, `private` renamed `private_`, the flexible array as a comment.
+
+A real kernel, ready with symbols and BTF: Download `memlens-demo-debian13.zip` (22 MB) from the [MemLens demo-data release](https://github.com/nightshift-labs-ai/memlens/releases/tag/demo-data), our companion plugin that exports a running kernel from a memory image.
 
 1. Unzip it and open `kernel.elf` in IDA; let auto-analysis finish (a whole kernel takes a while; not timed in IDA).
 2. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**.

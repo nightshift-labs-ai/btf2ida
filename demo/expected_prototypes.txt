@@ -1,0 +1,5 @@
+int main(void);
+int demo_dispatch(struct demo_device *dev, unsigned int flags);
+long long demo_checksum(const struct demo_device *dev, size_t len);
+void demo_close(struct demo_device *dev);
+int demo_open(struct demo_device *dev, unsigned int flags);
