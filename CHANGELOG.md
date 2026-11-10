@@ -2,6 +2,10 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## v0.1.9 (2026-11-10)
+
+Fixes to the __ksymtab naming from an independent review: sections that are writable as well as executable no longer count as code (on Ubuntu 26.04 7.0 that kept 406 exported data objects from being turned into functions: 14,717 exported functions named, all matching the debug symbol table; 13,865 prototypes, unchanged; Debian 13 unchanged at 10,497 / 10,333); names are applied only when the database still maps the input file unchanged; Cancel is honoured, with progress; the 4.19-5.3 ksymtab layout is read; the README now says this applies to an x86-64 ELF vmlinux (a raw arm64 Image gets types only). The 0.1.7 notes gave 15,123 for Ubuntu 7.0; the correct count is 14,717.
+
 ## v0.1.8 (2026-11-10)
 
 A kernel module's split BTF is now checked against the vmlinux chosen as its base: with the wrong vmlinux, its name references land in the middle of unrelated strings, and btf2ida refuses with a clear message instead of importing garbage names. Checked on Debian 13 nf_tables.ko: wrong base (WSL 6.18) refused, 2,419 of 2,601 references mid-string; its own base, 0 of 1,090. Output for normal kernels is byte-identical.
