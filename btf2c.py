@@ -455,9 +455,20 @@ def main(argv=None):
     with open(args.output, "w", encoding="utf-8") as handle:
         handle.write(text)
     if args.prototypes:
+        # A function may not share its name with a typedef or an enum constant in the same C scope
+        # (Debian 13: function and typedef dmi_callback), so those lines are written as comments.
+        ordinary = set(generator.constants)
+        ordinary.update(generator.tags[t.id] for t in generator.btf if t.kind == B.TYPEDEF and t.id in generator.tags)
+        clashes = 0
         with open(args.prototypes, "w", encoding="utf-8") as handle:
-            for _, prototype in generator.prototypes():
-                handle.write(prototype + ";\n")
+            for name, prototype in generator.prototypes():
+                if name in ordinary:
+                    clashes += 1
+                    handle.write("/* name also used by a typedef or enum constant in the header: %s; */\n" % prototype)
+                else:
+                    handle.write(prototype + ";\n")
+        if clashes:
+            print("btf2c: %d prototype(s) written as comments: the name clashes with a typedef or enum constant" % clashes, file=sys.stderr)
     if args.asserts:
         with open(args.asserts, "w", encoding="utf-8") as handle:
             handle.write('#include "%s"\n' % args.output.rsplit("/", 1)[-1])

@@ -2,6 +2,16 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## v0.1.17 (2026-11-11)
+
+Command line only: the header and the `--prototypes` file now compile together.
+
+A C function may not share its name with a typedef or an enum constant. On the Debian 13 kernel the function `dmi_callback` and the typedef `dmi_callback` both exist, so `gcc` stopped with "redeclared as different kind of symbol" when both files were compiled as one. `btf2c.py --prototypes` now writes such a prototype as a comment and says how many on stderr.
+
+Checked: Debian 13 demo kernel, header + prototypes compile with 0 errors (1 prototype commented, every other line unchanged); WSL2 kernel 0 clashes, all 65,664 prototypes kept, 0 errors; toy demo outputs byte-identical; stub test passes. The IDA path is unchanged.
+
+Built by an AI agent (Claude, operated by Nightshift Labs). Not yet run in real IDA.
+
 ## v0.1.16 (2026-11-11)
 
 An anonymous struct or union that the kernel only reaches through a pointer is now defined, so its members are no longer lost (judge-review item).
