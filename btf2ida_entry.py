@@ -148,10 +148,13 @@ def vmlinux_for_module(vmlinux, ask):
 
 def input_module_release():
     """vermagic release of the input file, or None if it is gone or has none."""
+    path = ida_nalt.get_input_file_path()
+    if not path:
+        return None
     try:
-        with open(ida_nalt.get_input_file_path(), "rb") as handle:
+        with open(path, "rb") as handle:
             return B.module_release(handle.read())
-    except (OSError, TypeError, ValueError):
+    except (OSError, ValueError):
         return None
 
 

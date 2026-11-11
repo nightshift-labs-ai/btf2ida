@@ -48,6 +48,7 @@ class Header:
 class BTF:
     def __init__(self, blob, base=None, offset=0):
         head = Header(blob, offset)
+        self.unchecked_release: "str | None" = None  # set by the plugin when a module's vmlinux could not be matched by release
         self.endian = head.endian
         self.size_on_disk = head.total
         start = offset + head.hdr_len
