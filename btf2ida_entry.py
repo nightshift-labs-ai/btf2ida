@@ -41,7 +41,8 @@ def import_in_batches(declarations, parse, batch=1000, progress=None):
     """Feed declarations to parse(text) -> error count; returns those failing on their own.
 
     One rejected declaration must not cost the rest, so a failing batch is split in half until the
-    bad ones are isolated. parse_decls ignores redeclarations, which makes re-parsing a batch safe.
+    bad ones are isolated. parse_decls ignores redeclarations, which makes re-parsing a batch safe
+    (SDK typeinf.hpp: parse_decls "always uses the #HTI_DCL bit" = "don't complain about redeclarations").
     """
     failed = []
 

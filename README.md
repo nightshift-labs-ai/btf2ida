@@ -59,6 +59,8 @@ Open a kernel or kernel module in IDA, then **Edit > Plugins > BTF2IDA: Apply ke
 
 Functions the compiler rewrote (`.isra`, `.constprop`, `.part`, `.cold`) are left untyped on purpose: their calling convention may differ from the source signature.
 
+**Does my kernel have BTF?** On a running system: `ls /sys/kernel/btf/vmlinux`. For a kernel file: `readelf -S vmlinux | grep BTF`. A memory export has no `.BTF` section, but the data is still in it; the plugin finds it by its header and checks it. Without IDA, `python3 btf2c.py <file> /dev/null` prints the type counts, or `btf2c: no BTF found`. Every kernel we tried has it (Debian 13, Ubuntu 26.04, WSL2, Android GKI 6.1).
+
 Without IDA, as a generator of a C header for the same types:
 
 ```
@@ -82,7 +84,17 @@ All numbers from runs on real kernels; the scripts are in `tests/`.
 | `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 43 IDA API names used, 0 missing |
 | `tests/test_plugin_stub.py` with fake `ida_*` modules | full flow passes |
 
-Not verified: behaviour inside real IDA, including how fast IDA ingests a full kernel's types and whether it rejects specific declarations (the plugin is written to split rejected batches and report them instead of failing; that relies on IDA ignoring a redeclaration when a batch is parsed again, which has not been observed in IDA). Only x86-64 kernels were used in the offline checks.
+Not verified: behaviour inside real IDA, including how fast IDA ingests a full kernel's types and whether it rejects specific declarations (the plugin is written to split rejected batches and report them instead of failing; that relies on IDA ignoring a redeclaration when a batch is parsed again; the SDK documents it, since `parse_decls` "always uses the HTI_DCL bit", which means "don't complain about redeclarations" (`typeinf.hpp` in HexRaysSA/ida-sdk), but it has not been observed in IDA). Only x86-64 kernels were used in the offline checks.
+
+## Compared with bpftool and Parse C header file
+
+`bpftool btf dump file <vmlinux> format c` (bpftool 7.8.1) also writes kernel types as C, and IDA can parse a C header. What that route does not do, measured on the same inputs as the table above:
+
+- **No `.BTF` section, no BTF.** On the Debian 13 memory export it stops with `libbpf: failed to find '.BTF' ELF section ... No data available`. btf2ida carves the BTF out of the image instead (50,366 prototypes from the same file).
+- **Types only, no function prototypes.** On the WSL2 kernel bpftool's header has 172,354 lines but declares none of the 65,664 functions in the BTF (`vfs_read` and `tcp_sendmsg` do not appear; functions only show up as function-pointer typedefs). btf2ida applies the prototypes to the functions by name.
+- **Written for clang, not IDA.** The header opens with `#pragma clang attribute push (__attribute__((preserve_access_index)), ...)` and has 305 lines with `__attribute__`. btf2c writes plain declarations with explicit padding under `#pragma pack(1)`. We have not checked how IDA's parser treats bpftool's header.
+
+bpftool remains the right tool for CO-RE BPF programs; btf2ida is for getting the same data into an IDA database.
 
 ## How it works
 

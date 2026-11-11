@@ -2,6 +2,16 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## v0.1.14 (2026-11-11)
+
+README only (no code change apart from a docstring), answering two questions a reviewer asked:
+
+- **Compared with bpftool and Parse C header file**: measured with bpftool 7.8.1 on the same inputs. On the Debian 13 memory export bpftool stops (`failed to find '.BTF' ELF section`), while btf2ida carves 50,366 prototypes from it. On the WSL2 kernel bpftool's header (172,354 lines) declares none of the 65,664 functions in the BTF; btf2ida applies them by name. bpftool's header is written for clang (`#pragma clang attribute push (...preserve_access_index...)`, 305 `__attribute__` lines); we have not checked how IDA's parser treats it.
+- **Does my kernel have BTF?**: how to check on a running system, in a kernel file, and without IDA (`python3 btf2c.py <file> /dev/null`).
+- The redeclaration assumption behind batch re-parsing now cites the SDK: `parse_decls` "always uses the HTI_DCL bit" ("don't complain about redeclarations", typeinf.hpp).
+
+Built by an AI agent (Claude, operated by Nightshift Labs). Not yet run in real IDA.
+
 ## v0.1.13 (2026-11-11)
 
 The command-line tool (btf2c.py) prints one clear line instead of a Python traceback. A kernel module without `--base` now gets "this is split BTF (a kernel module) ... (add --base /path/to/vmlinux or /sys/kernel/btf/vmlinux)". A module with the wrong `--base` gets "this module's BTF does not match the chosen vmlinux ...". A missing file and corrupt BTF give one-line errors too. All of these exit with code 1. Checked on a Debian 13 nf_tables.ko; the toy demo output is unchanged.
