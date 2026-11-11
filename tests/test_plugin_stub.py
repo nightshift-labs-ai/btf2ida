@@ -32,18 +32,20 @@ class Build:
         return struct.pack("<HBBIIIII", 0xEB9F, 1, 0, 24, 0, len(self.types), len(self.types), len(self.strs)) + self.types + self.strs
 
 
-def tiny_rel(section_names):
-    """A minimal ELF64 little-endian relocatable file with the given empty sections and a .shstrtab."""
-    names = b"\0" + b"".join(n + b"\0" for n in section_names) + b".shstrtab\0"
-    shoff = (64 + len(names) + 7) & ~7
-    headers, at = [bytes(64)], 1
-    for n in section_names:
-        headers.append(struct.pack("<IIQQQQIIQQ", at, 1, 0, 0, 64, 0, 0, 0, 1, 0))
-        at += len(n) + 1
+def tiny_rel(sections):
+    """A minimal ELF64 little-endian relocatable file: the given sections (name or (name, content)) and a .shstrtab."""
+    sections = [(item, b"") if isinstance(item, bytes) else item for item in sections]
+    names = b"\0" + b"".join(n + b"\0" for n, _ in sections) + b".shstrtab\0"
+    payload = names + b"".join(content for _, content in sections)
+    shoff = (64 + len(payload) + 7) & ~7
+    headers, at, offset = [bytes(64)], 1, 64 + len(names)
+    for n, content in sections:
+        headers.append(struct.pack("<IIQQQQIIQQ", at, 1, 0, 0, offset, len(content), 0, 0, 1, 0))
+        at, offset = at + len(n) + 1, offset + len(content)
     headers.append(struct.pack("<IIQQQQIIQQ", at, 3, 0, 0, 64, len(names), 0, 0, 1, 0))
     ehdr = b"\x7fELF\x02\x01\x01" + bytes(9) + struct.pack(
         "<HHIQQQIHHHHHH", 1, 62, 1, 0, 0, shoff, 0, 64, 0, 0, 64, len(headers), len(headers) - 1)
-    return ehdr + names + bytes(shoff - 64 - len(names)) + b"".join(headers)
+    return ehdr + payload + bytes(shoff - 64 - len(payload)) + b"".join(headers)
 
 
 b = Build()
@@ -272,6 +274,30 @@ with tempfile.TemporaryDirectory() as folder:
     message32 = m.run_import()
     assert "no prototype was applied (32-bit" in message32 and "Typed " not in message32, message32
     ida.inf_is_64bit = lambda: True
+    # Its vermagic release is compared with the chosen vmlinux's "Linux version" banner.
+    with open(nobtf, "wb") as handle:
+        handle.write(tiny_rel([b".gnu.linkonce.this_module", (b".modinfo", b"license=GPL\0vermagic=6.1.0-x SMP mod_unload \0")]))
+    assert B.module_release(tiny_rel([(b".modinfo", b"vermagic=6.1.0-x SMP \0")])) == "6.1.0-x"
+    message = m.run_import()  # raw BTF has no banner: imported, with a "Not checked" line
+    assert "Typed 1 imported" in message and "Not checked: the module was built for 6.1.0-x" in message, message
+    with open(paths["vmlinux.btf"], "rb") as handle:
+        raw_vmlinux = handle.read()
+    for release, refused in (("6.1.0-x", False), ("6.17.0-41-generic", True)):
+        bannered = os.path.join(folder, "vmlinux-" + release)
+        with open(bannered, "wb") as handle:
+            handle.write(raw_vmlinux + b"Linux version %s (builder@host) #1 SMP\0" % release.encode())
+        try:
+            message = m.run_import(bannered, ask=False)
+            assert not refused and "Typed 1 imported" in message and "Not checked" not in message, message
+        except B.BTFError as error:
+            assert refused and "built for 6.1.0-x, but the chosen vmlinux is 6.17.0-41-generic" in str(error), error
+    nalt.get_input_file_path = lambda: os.path.join(folder, "moved-away.ko")  # the input file is gone
+    try:
+        m.run_import(bannered, ask=False)
+        raise AssertionError("a missing input file must be named")
+    except B.BTFError as error:
+        assert "is not on disk" in str(error), error
+    nalt.get_input_file_path = lambda: nobtf
     try:
         m.run_import(None, ask=False)
         raise AssertionError("a module without BTF and without vmlinux must fail")

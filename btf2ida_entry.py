@@ -135,7 +135,24 @@ def vmlinux_for_module(vmlinux, ask):
     if not path:
         raise B.BTFError(why + ": choose the matching vmlinux to type the kernel functions it calls.")
     with open(path, "rb") as handle:
-        return B.load_base(handle.read(), path)
+        blob = handle.read()
+    data = B.load_base(blob, path)
+    # Nothing in the BTF ties it to the module (no split BTF to check), so compare the kernel releases.
+    built_for, found = input_module_release(), B.kernel_release(blob)
+    if built_for and found and built_for != found:
+        raise B.BTFError("this kernel module was built for %s, but the chosen vmlinux is %s: choose the vmlinux "
+                         "of the same build (its prototypes may differ)." % (built_for, found))
+    data.unchecked_release = built_for if built_for and not found else None
+    return data
+
+
+def input_module_release():
+    """vermagic release of the input file, or None if it is gone or has none."""
+    try:
+        with open(ida_nalt.get_input_file_path(), "rb") as handle:
+            return B.module_release(handle.read())
+    except (OSError, TypeError, ValueError):
+        return None
 
 
 def find_btf(vmlinux=None, ask=True):
@@ -285,6 +302,9 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
     elif no_own_btf:
         lines.append("This kernel module has no BTF of its own (distribution out-of-tree modules are often built without it): "
                      "its own functions get no prototype; the kernel functions it calls are typed from the vmlinux BTF.")
+    if no_own_btf and getattr(generator.btf, "unchecked_release", None):
+        lines.append("Not checked: the module was built for %s, and the chosen file has no 'Linux version' banner "
+                     "(raw BTF?), so make sure it comes from that same build." % generator.btf.unchecked_release)
     if (generator.btf.base is not None or no_own_btf) and not no_prototypes_32:  # a module: the counts above are its own functions
         lines.append("Typed %d imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA %d" % (result["imports"], len(result["imports_rejected"])))
     lines += [
@@ -299,6 +319,10 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
 def run_import(vmlinux=None, ask=True):
     data, source = find_btf(vmlinux, ask)
     if data is None:
+        path = ida_nalt.get_input_file_path()
+        if path and not os.path.isfile(path):
+            raise B.BTFError("no BTF found in the loaded segments, and the input file %s is not on disk, so btf2ida "
+                             "cannot read it or tell whether it is a kernel module. Put the file back at that path." % path)
         raise B.BTFError("no BTF found in the input file or the loaded segments.")
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4
     generator = btf2c.Generator(data, pointer_size)

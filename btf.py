@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Read Linux BTF from a raw blob, an ELF file or any memory image. Standard library only."""
+import re
 import struct
 
 MAGIC = 0xEB9F
@@ -274,6 +275,28 @@ def is_kernel_module(blob):
         return elf_section(blob, b".gnu.linkonce.this_module") is not None
     except (struct.error, IndexError, ValueError):
         return False
+
+
+def module_release(blob):
+    """The kernel release a module was built for (first word of vermagic= in .modinfo), or None."""
+    try:
+        info = elf_section(blob, b".modinfo")
+    except (struct.error, IndexError, ValueError):
+        return None
+    for entry in (info or b"").split(b"\0"):
+        if entry.startswith(b"vermagic="):
+            words = entry[len(b"vermagic="):].split()
+            return words[0].decode("ascii", "replace") if words else None
+    return None
+
+
+BANNER = re.compile(rb"Linux version (\d[^\s\x00]*) \(")
+
+
+def kernel_release(blob):
+    """The release in a kernel image's 'Linux version <release> (' banner, or None (raw BTF has none)."""
+    found = BANNER.search(blob)
+    return found.group(1).decode("ascii", "replace") if found else None
 
 
 def load_base(blob, path):
