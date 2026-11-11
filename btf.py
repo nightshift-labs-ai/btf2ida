@@ -261,6 +261,12 @@ def carve(blob, base=None, little=True, min_types=None):
     return best
 
 
+def is_kernel_module(blob):
+    """True for an ELF relocatable object that is a Linux kernel module (it carries .gnu.linkonce.this_module)."""
+    return (len(blob) >= 64 and blob[:4] == b"\x7fELF" and blob[16:18] in (b"\x01\x00", b"\x00\x01")
+            and blob.find(b".gnu.linkonce.this_module") != -1)
+
+
 def load_base(blob, path):
     """BTF of the vmlinux chosen as the base of a module's split BTF; a BTFError that says why if it has none."""
     try:

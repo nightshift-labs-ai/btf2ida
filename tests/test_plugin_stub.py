@@ -230,6 +230,24 @@ with tempfile.TemporaryDirectory() as folder:
     assert (result["imports"], result["kept"]) == (0, 1), result
     user_typed.discard(0x8000)
     seg.segtype = lambda ea: seg.SEG_XTRN if ea == 0x8000 else seg.SEG_CODE
+    # A kernel module with no BTF of its own: only its imports are typed, from the chosen vmlinux.
+    nobtf = os.path.join(folder, "nobtf.ko")
+    with open(nobtf, "wb") as handle:
+        handle.write(b"\x7fELF" + bytes(12) + b"\x01\x00" + bytes(46) + b".gnu.linkonce.this_module\x00")
+    nalt.get_input_file_path = lambda: nobtf
+    whole_segments = autos.Segments
+    autos.Segments = lambda: []
+    del calls[:]
+    message = m.run_import()
+    assert "no BTF of its own" in message and "Typed 1 imported kernel functions" in message, message
+    assert [c for c in calls if c[0] == "settype"] == [("settype", 0x8000, "int imp_fn(int x);")], calls
+    try:
+        m.run_import(None, ask=False)
+        raise AssertionError("a module without BTF and without vmlinux must fail")
+    except B.BTFError as error:
+        assert "--vmlinux" in str(error) and "no BTF of its own" in str(error), error
+    autos.Segments = whole_segments
+    nalt.get_input_file_path = lambda: paths["mod.ko"]
     idc.SetType = lambda ea, d: ea != 0x8000                             # IDA refuses the import's prototype
     result = m.apply_prototypes(own, None, imports)
     assert (result["applied"], result["rejected"], result["imports"], result["imports_rejected"]) == (1, [], 0, ["imp_fn"]), result

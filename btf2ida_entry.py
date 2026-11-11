@@ -104,6 +104,40 @@ def from_segments(base):
     return best
 
 
+SOURCE_NO_OWN_BTF = "the chosen vmlinux (this kernel module has no BTF of its own)"
+
+
+def input_is_module():
+    path = ida_nalt.get_input_file_path()
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "rb") as handle:
+            blob = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
+            try:
+                return B.is_kernel_module(blob)
+            finally:
+                blob.close()
+    except (OSError, ValueError):
+        return False
+
+
+def vmlinux_for_module(vmlinux, ask):
+    """vmlinux BTF for a kernel module that has no BTF of its own (its imports can still be typed)."""
+    why = "this kernel module has no BTF of its own"
+    path = vmlinux
+    if not path and not ask:
+        raise B.BTFError(why + ": give the matching vmlinux with --vmlinux to type the kernel functions it calls.")
+    if not path:
+        ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
+        path = ida_kernwin.ask_file(False, None, FILE_PROMPT)
+        ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
+    if not path:
+        raise B.BTFError(why + ": choose the matching vmlinux to type the kernel functions it calls.")
+    with open(path, "rb") as handle:
+        return B.load_base(handle.read(), path)
+
+
 def find_btf(vmlinux=None, ask=True):
     """(BTF, where it came from). For split BTF it uses the vmlinux path given, or asks for one (if ask)."""
     base = None
@@ -113,6 +147,8 @@ def find_btf(vmlinux=None, ask=True):
             if found is not None:
                 return found, "the input file"
             found = from_segments(base)
+            if found is None and base is None and input_is_module():
+                return vmlinux_for_module(vmlinux, ask), SOURCE_NO_OWN_BTF
             return found, "the loaded segments"
         except B.NeedsBase:
             if attempt:
@@ -230,7 +266,7 @@ def apply_prototypes(prototypes, progress=None, imported=()):
     return result
 
 
-def report(source, generator, failed, result, named=0, cancelled=False, no_prototypes_32=False):
+def report(source, generator, failed, result, named=0, cancelled=False, no_prototypes_32=False, no_own_btf=False):
     stats = generator.stats
     lines = ["CANCELLED: the import stopped early, so only part of what is listed below reached the database."] if cancelled else []
     lines += [
@@ -242,7 +278,10 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
     if no_prototypes_32:
         lines.append("Prototypes not applied: this is a 32-bit database. 32-bit x86 kernels pass arguments in registers "
                      "(regparm), which a plain C prototype would misstate, so btf2ida only imports types on 32-bit.")
-    if generator.btf.base is not None:  # a kernel module: the counts above cover its own functions only
+    if no_own_btf:
+        lines.append("This kernel module has no BTF of its own (distribution out-of-tree modules are often built without it): "
+                     "its own functions get no prototype; the kernel functions it calls are typed from the vmlinux BTF.")
+    if generator.btf.base is not None or no_own_btf:  # a kernel module: the counts above cover its own functions only
         lines.append("Typed %d imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA %d" % (result["imports"], len(result["imports_rejected"])))
     lines += [
         "Left untyped on purpose: %d compiler clones (.isra, .constprop, .part, .cold), their ABI may differ" % result["clones"],
@@ -264,6 +303,8 @@ def run_import(vmlinux=None, ask=True):
     prototypes, imported = [], []
     if pointer_size == 8 and data.base is not None:  # a kernel module: split BTF on top of vmlinux's
         prototypes, imported = generator.prototypes(data.own), generator.prototypes(data.base)
+    elif pointer_size == 8 and source == SOURCE_NO_OWN_BTF:  # only the module's imports can be typed
+        imported = generator.prototypes()
     elif pointer_size == 8:
         prototypes = generator.prototypes()
 
@@ -279,7 +320,7 @@ def run_import(vmlinux=None, ask=True):
     named = name_exports() if prototypes and not ida_kernwin.user_cancelled() else 0
     result = apply_prototypes(prototypes, proto_progress, imported)
     return report(source, generator, failed, result, named, cancelled=bool(ida_kernwin.user_cancelled()),
-                  no_prototypes_32=pointer_size != 8)
+                  no_prototypes_32=pointer_size != 8, no_own_btf=source == SOURCE_NO_OWN_BTF)
 
 
 

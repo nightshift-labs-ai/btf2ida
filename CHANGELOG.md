@@ -2,6 +2,10 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## Unreleased
+
+- A kernel module with no BTF of its own (distribution out-of-tree modules are often built without it, because their build has no vmlinux) no longer stops with "no BTF found": btf2ida asks for the matching vmlinux (or takes `--vmlinux`) and types the kernel functions the module calls, in its extern segment, from the vmlinux BTF. The summary says the module's own functions get no prototype. Modules are recognised as ELF relocatable files with a `.gnu.linkonce.this_module` section (checked on Ubuntu usbio.ko and intel_cvs.ko, Debian nf_tables.ko; not on vmlinux). Stub test case added. Not yet run in real IDA.
+
 ## v0.1.19 (2026-11-12)
 
 - Headless runner: a module without `--vmlinux` now stops with "give the matching vmlinux with --vmlinux" instead of reaching IDA's file dialog, which idalib has no window for (`run_import(..., ask=False)`). Stub test case added.
