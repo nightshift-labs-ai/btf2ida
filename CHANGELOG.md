@@ -4,7 +4,7 @@ Taken from the GitHub release notes. Newest first.
 
 ## Unreleased
 
-- A kernel module with no BTF of its own (distribution out-of-tree modules are often built without it, because their build has no vmlinux) no longer stops with "no BTF found": btf2ida asks for the matching vmlinux (or takes `--vmlinux`) and types the kernel functions the module calls, in its extern segment, from the vmlinux BTF. The summary says the module's own functions get no prototype. Modules are recognised as ELF relocatable files with a `.gnu.linkonce.this_module` section (checked on Ubuntu usbio.ko and intel_cvs.ko, Debian nf_tables.ko; not on vmlinux). Stub test case added. Not yet run in real IDA.
+- A kernel module with no BTF of its own (distribution out-of-tree modules are often built without it, because their build has no vmlinux) no longer stops with "no BTF found": btf2ida asks for the matching vmlinux (or takes `--vmlinux`) and types the kernel functions the module calls, in its extern segment, from the vmlinux BTF. The summary says the module's own functions get no prototype. Modules are recognised as ELF relocatable files with a `.gnu.linkonce.this_module` section (checked on Ubuntu usbio.ko and intel_cvs.ko, Debian nf_tables.ko; not on vmlinux). Measured with a fake database on Debian 13 nf_tables.ko with `.BTF` removed: 154 imports typed, the same as with its BTF; the module with BTF is unchanged (488 own + 154 imports). Stub test case added. Not yet run in real IDA.
 
 ## v0.1.19 (2026-11-12)
 
