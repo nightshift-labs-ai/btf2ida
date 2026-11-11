@@ -56,6 +56,9 @@ def known_api(idapython):
 
 
 def main():
+    if len(sys.argv) != 2 or not os.path.isdir(sys.argv[1]):
+        print("usage: python3 tests/check_ida_api.py <ida-sdk>/src/plugins/idapython", file=sys.stderr)
+        return 2
     with open(os.path.join(ROOT, "btf2ida_entry.py")) as handle:
         tree = ast.parse(handle.read())
     known = known_api(sys.argv[1])
