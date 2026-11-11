@@ -261,6 +261,19 @@ def carve(blob, base=None, little=True, min_types=None):
     return best
 
 
+def load_base(blob, path):
+    """BTF of the vmlinux chosen as the base of a module's split BTF; a BTFError that says why if it has none."""
+    try:
+        return load(blob)
+    except BTFError as error:
+        if blob[0x202:0x206] == b"HdrS":
+            hint = ("it is a compressed kernel image (bzImage): extract it first with scripts/extract-vmlinux, "
+                    "or use a copy of /sys/kernel/btf/vmlinux from the same kernel")
+        else:
+            hint = "use the uncompressed vmlinux of the same kernel build, or a copy of its /sys/kernel/btf/vmlinux"
+        raise BTFError("the chosen vmlinux (%s) has no BTF (%s): %s" % (path, error, hint))
+
+
 def load(blob, base=None):
     """Raw BTF, an ELF with a .BTF section, or anything containing BTF."""
     if blob[:2] in (b"\x9f\xeb", b"\xeb\x9f"):

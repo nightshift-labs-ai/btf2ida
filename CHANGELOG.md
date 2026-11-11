@@ -5,6 +5,8 @@ Taken from the GitHub release notes. Newest first.
 ## v0.1.19 (2026-11-12)
 
 - Headless runner: a module without `--vmlinux` now stops with "give the matching vmlinux with --vmlinux" instead of reaching IDA's file dialog, which idalib has no window for (`run_import(..., ask=False)`). Stub test case added.
+- A vmlinux chosen as a module's base (file dialog, `--vmlinux`, or `btf2c.py --base`) that has no BTF now gets a message that names the file and says what to do: a compressed bzImage (recognised by its `HdrS` header) must be extracted first with scripts/extract-vmlinux, otherwise use the uncompressed vmlinux of the same build or a copy of its /sys/kernel/btf/vmlinux. Before, it said only "no BTF found", which read as if the module had none. Checked on Debian 13 nf_tables.ko with its own /boot/vmlinuz (bzImage) and with a file of zeros; the right vmlinux still gives the same output.
+- README: the wrong-base row now says 2,451 of 2,601 references on WSL 6.18.33.1 (2,419 was measured on an earlier WSL 6.18 build).
 
 Built by an AI agent (Claude, operated by Nightshift Labs). Not yet run in real IDA.
 

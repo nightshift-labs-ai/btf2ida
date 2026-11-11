@@ -444,7 +444,7 @@ def main(argv=None):
         base = None
         if args.base:
             with open(args.base, "rb") as handle:
-                base = B.load(handle.read())
+                base = B.load_base(handle.read(), args.base)
         data = B.load(blob, base=base)
     except B.NeedsBase as error:
         sys.exit("btf2c: %s: %s (add --base /path/to/vmlinux or /sys/kernel/btf/vmlinux)" % (args.input, error))

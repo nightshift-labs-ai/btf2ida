@@ -127,7 +127,7 @@ def find_btf(vmlinux=None, ask=True):
             if not path:
                 raise B.BTFError("this is split BTF (a kernel module): it needs the matching vmlinux, and none was chosen.")
             with open(path, "rb") as handle:
-                base = B.load(handle.read())
+                base = B.load_base(handle.read(), path)
     return None, ""
 
 
