@@ -297,8 +297,8 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
         "Prototypes applied to %d functions; rejected by IDA %d; not in this database %d; name is not a function start %d" % (result["applied"], len(result["rejected"]), result["absent"], result["not_function"]),
     ]
     if no_prototypes_32:
-        lines.append("Prototypes not applied: this is a 32-bit database. 32-bit x86 kernels pass arguments in registers "
-                     "(regparm), which a plain C prototype would misstate, so btf2ida only imports types on 32-bit.")
+        lines.append("Prototypes not applied: this is a 32-bit x86 database (or the processor is unknown). 32-bit x86 kernels "
+                     "pass arguments in registers (regparm), which a plain C prototype would misstate, so btf2ida only imports types there.")
     if no_own_btf and no_prototypes_32:
         lines.append("This kernel module has no BTF of its own (distribution out-of-tree modules are often built without it): "
                      "the types come from the vmlinux BTF; no prototype was applied (32-bit, see above).")
@@ -336,14 +336,18 @@ def run_import(vmlinux=None, ask=True):
         raise B.BTFError("no BTF found in the input file or the loaded segments.")
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4
     generator = btf2c.Generator(data, pointer_size)
+    # 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate; other
+    # 32-bit kernels (ARM, MIPS, RISC-V) use their standard C calling convention. Unknown processor: treat as x86.
+    procname = (getattr(ida_ida, "inf_get_procname", lambda: None)() or "").lower()
+    regparm = pointer_size == 4 and procname in ("", "metapc")
     declarations = generator.declarations()
     # 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate.
     prototypes, imported = [], []
-    if pointer_size == 8 and data.base is not None:  # a kernel module: split BTF on top of vmlinux's
+    if not regparm and data.base is not None:  # a kernel module: split BTF on top of vmlinux's
         prototypes, imported = generator.prototypes(data.own), generator.prototypes(data.base)
-    elif pointer_size == 8 and source == SOURCE_NO_OWN_BTF:  # only the module's imports can be typed
+    elif not regparm and source == SOURCE_NO_OWN_BTF:  # only the module's imports can be typed
         imported = generator.prototypes()
-    elif pointer_size == 8:
+    elif not regparm:
         prototypes = generator.prototypes()
 
     def types_progress(done, total):
@@ -358,7 +362,7 @@ def run_import(vmlinux=None, ask=True):
     named = name_exports() if prototypes and not ida_kernwin.user_cancelled() else 0
     result = apply_prototypes(prototypes, proto_progress, imported)
     return report(source, generator, failed, result, named, cancelled=bool(ida_kernwin.user_cancelled()),
-                  no_prototypes_32=pointer_size != 8, no_own_btf=source == SOURCE_NO_OWN_BTF)
+                  no_prototypes_32=regparm, no_own_btf=source == SOURCE_NO_OWN_BTF)
 
 
 

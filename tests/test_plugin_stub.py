@@ -260,7 +260,13 @@ with tempfile.TemporaryDirectory() as folder:
     assert "BTF from the input file" in message64 and "32-bit database" not in message64, message64
     ida.inf_is_64bit = lambda: False  # 32-bit: types only, and the summary says why no prototype was applied
     message32 = m.run_import(paths["vmlinux.btf"])
-    assert "Prototypes not applied: this is a 32-bit database" in message32 and "applied to 0 functions" in message32, message32
+    assert "Prototypes not applied: this is a 32-bit x86 database" in message32 and "applied to 0 functions" in message32, message32
+    ida.inf_get_procname = lambda: "ARM"  # 32-bit ARM: no regparm, so prototypes are applied
+    message_arm = m.run_import(paths["vmlinux.btf"])
+    assert "Prototypes not applied" not in message_arm and "applied to 0 functions" not in message_arm, message_arm
+    ida.inf_get_procname = lambda: "metapc"
+    assert "Prototypes not applied: this is a 32-bit x86 database" in m.run_import(paths["vmlinux.btf"])
+    del ida.inf_get_procname
     ida.inf_is_64bit = lambda: True
     try:  # headless without --vmlinux: a clear error, never a dialog
         m.run_import(None, ask=False)
