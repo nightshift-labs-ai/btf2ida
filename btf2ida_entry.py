@@ -307,10 +307,11 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
                      "its own functions get no prototype; the kernel functions it calls are typed from the vmlinux BTF.")
     distilled = generator.btf.distilled
     if distilled:
-        lines.append("This module carries a distilled base BTF (.BTF.base; external modules built on Linux 6.12 or newer): "
-                     "its own functions are typed; %d kernel structs/unions it uses are known only by name and size, so only "
+        lines.append("This module carries a distilled base BTF (.BTF.base; external modules built on Linux 6.11 or newer): "
+                     "its own functions %s; %d kernel structs/unions it uses are known only by name and size, so only "
                      "a forward declaration is sent for them; the kernel functions it calls are not typed (their prototypes "
-                     "are only in vmlinux's BTF)." % stats["base_only"])
+                     "are only in vmlinux's BTF)." % ("get no prototype (32-bit, see above)" if no_prototypes_32 else "are typed",
+                                                 stats["base_only"]))
     if no_own_btf and getattr(generator.btf, "unchecked_release", None):
         lines.append("Not checked: the module was built for %s, and the chosen file has no 'Linux version' banner "
                      "(raw BTF?), so make sure it comes from that same build." % generator.btf.unchecked_release)

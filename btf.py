@@ -329,7 +329,7 @@ def load(blob, base=None):
     section = elf_section(blob)
     if section:
         distilled = elf_section(blob, b".BTF.base")
-        if distilled:  # an external module (Linux 6.12+): its split BTF sits on this small base, not on vmlinux
+        if distilled:  # an external module (Linux 6.11+): its split BTF sits on this small base, not on vmlinux
             data = BTF(section, base=BTF(distilled))
             data.distilled = True
             return data

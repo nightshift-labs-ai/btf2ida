@@ -95,7 +95,7 @@ etext = btf2c.header(egen)
 assert "struct lock_class_key;" in etext and "struct lock_class_key {" not in etext, etext
 assert egen.stats["empty"] == 1 and egen.stats["structs"] == 1, egen.stats
 
-# An external module with a distilled .BTF.base (Linux 6.12+): its split BTF sits on that small base, which
+# An external module with a distilled .BTF.base (Linux 6.11+): its split BTF sits on that small base, which
 # names kernel structs by size only. They must stay forward declarations (a padding body would replace the real one).
 dbase = Build()
 dbase.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                               # 1

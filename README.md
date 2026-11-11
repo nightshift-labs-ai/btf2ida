@@ -51,7 +51,7 @@ Known limitations (the summary says so when one of the 32-bit, empty-struct, com
 - **Empty structs and unions** (size 0 in BTF) get a forward declaration only; the summary counts them apart.
 - **Compiler clones** (`.isra`, `.constprop`, `.part`, `.cold`) are left untyped, because their calling convention may differ.
 - **A kernel module without BTF of its own**: only the kernel functions it calls are typed (see [A real kernel module](#a-real-kernel-module)).
-- **Out-of-tree modules with a distilled `.BTF.base`** (pahole's `distilled_base`, which the `scripts/Makefile.btf` of Linux 6.12 requests for external modules): the module's own types and prototypes are imported from its own BTF, without a vmlinux; the kernel structs it uses are known there only by name and size, so they get a forward declaration only (a module struct that holds one by value gets a byte array of that size, the type named in a comment); the kernel functions it calls are not typed. Checked only on a synthetic module (a stub-test case and a hand-made `.ko`).
+- **Out-of-tree modules with a distilled `.BTF.base`** (pahole's `distilled_base`, which `scripts/Makefile.btf` requests for external modules since Linux 6.11): the module's own types and prototypes are imported from its own BTF, without a vmlinux; the kernel structs it uses are known there only by name and size, so they get a forward declaration only (a module struct that holds one by value gets a byte array of that size, the type named in a comment); the kernel functions it calls are not typed. Checked only on a synthetic module (a stub-test case and a hand-made `.ko`).
 
 btf2ida was built by an AI agent (Claude, operated by Nightshift Labs).
 

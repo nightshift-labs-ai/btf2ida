@@ -312,7 +312,7 @@ class Generator:
         count = 1
         while type_id:
             t = self.btf[type_id]
-            if t.kind in MODS or (t.kind == B.TYPEDEF and self.typedef_alias(t)):
+            if t.kind in MODS or t.kind == B.TYPEDEF:  # any typedef: `typedef struct qrwlock arch_rwlock_t` too
                 type_id = t.ref
             elif t.kind == B.ARRAY:
                 count *= t.data[2]
@@ -443,8 +443,8 @@ class Generator:
         """{C tag: (size, {member: byte offset})} for emitted named structs (plain members only)."""
         out = {}
         for t in self.btf:
-            if t.kind not in (B.STRUCT, B.UNION) or t.id not in self.done or not t.size or not t.name:
-                continue
+            if t.kind not in (B.STRUCT, B.UNION) or t.id not in self.done or not t.size or not t.name or self.base_only(t):
+                continue  # base-only structs are forward declarations: sizeof() would not compile
             fields = {}
             if t.kind == B.STRUCT:
                 for name, m_type, offset in t.data:
@@ -477,6 +477,9 @@ def main(argv=None):
             with open(args.base, "rb") as handle:
                 base = B.load_base(handle.read(), args.base)
         data = B.load(blob, base=base)
+        if data.distilled and base is not None:
+            print("btf2c: %s carries its own distilled .BTF.base, which its BTF is built on; --base is not used "
+                  "(kernel structs it names by size only become forward declarations)" % args.input, file=sys.stderr)
     except B.NeedsBase as error:
         sys.exit("btf2c: %s: %s (add --base /path/to/vmlinux or /sys/kernel/btf/vmlinux)" % (args.input, error))
     except (B.BTFError, OSError) as error:
