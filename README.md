@@ -7,7 +7,7 @@ Open a Linux kernel in IDA and get its **real types and function prototypes** wi
 Most current distribution and Android GKI kernels carry [BTF](https://docs.kernel.org/bpf/btf.html) (BPF Type Format, built in with `CONFIG_DEBUG_INFO_BTF`), a compact description of every kernel struct, union, enum and function signature. Many embedded and older vendor kernels do not. Where it exists, it is there in a stripped `vmlinux`, in Android GKI kernels, and in RAM. btf2ida finds it and applies it:
 
 - **Every kernel type**: all structs, unions, enums and typedefs imported as IDA local types, every member at its exact byte offset (packed and anonymous members included). Bitfields are kept as raw storage bytes with their names in a comment, and zero-length trailing arrays appear only as comments, so those members are not separately visible in IDA. Enums that are 1 byte wide or 64-bit (ENUM64; a few dozen per kernel) become plain unsigned integers of that size, without their constants.
-- **Function prototypes by name**: each function in the database whose name has a BTF signature gets that signature, so the decompiler shows `struct sock *sk` instead of `__int64 a1`. On a stripped kernel, exported functions are first named from `__ksymtab`.
+- **Function prototypes by name**: each function in the database whose name has a BTF signature gets that signature, so the decompiler shows `struct sock *sk` instead of `__int64 a1`. On a stripped kernel, exported functions are first named from `__ksymtab`. In a kernel module, the plugin also applies prototypes to the kernel functions the module imports ([A real kernel module](#a-real-kernel-module)).
 - **Finds BTF on its own**: from the input file (`vmlinux`, a kernel module `.ko`, raw BTF, a memory image, by carving) or from the loaded segments. For a kernel module it asks for the matching `vmlinux` to resolve split BTF. Raw BTF or a raw memory image gives types only: prototypes need function names in the database.
 
 It adds nothing to your binary and needs nothing installed besides the plugin.
@@ -67,6 +67,28 @@ Without IDA, as a generator of a C header for the same types:
 python3 btf2c.py /sys/kernel/btf/vmlinux vmlinux_types.h
 ```
 
+## A real kernel module
+
+*Measured outside IDA, with fake IDA modules standing in for IDA. Not yet run in IDA.*
+
+A module's BTF is split: its own functions are in the module, while the kernel functions it calls are in vmlinux's BTF. btf2ida applies the module's own prototypes by name, as for a whole kernel. It applies vmlinux prototypes only to names in an extern segment (`SEG_XTRN`), where the module's imports should be. "Not in this database" counts only the module's own functions.
+
+Debian 13 `nf_tables.ko` (6.12.115+deb13.1-cloud-amd64), with that kernel's vmlinux as the base:
+
+| Fake database | v0.1.14 | v0.1.15 |
+|---|---|---|
+| No names (every lookup fails) | not in this database: 48,395 | not in this database: 495 (the module's own functions) |
+| Names from the module's symbol table: its 193 undefined symbols in an extern segment, its 1,042 text symbols as functions | 489 functions typed, 0 imports; not in this database: 47,752 | 488 module functions and 154 imports typed (for example `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`); not in this database: 7 |
+
+- The 7 have BTF but no symbol in the module.
+- The other 39 imports have no function BTF in vmlinux. Examples: data (`jiffies`), thunks (`__x86_indirect_thunk_rax`), functions of another module (`nfnetlink_*`), and `memcmp`.
+- One function typed before is now left alone: the module's own `jhash`, whose BTF is only in vmlinux's part. A vmlinux name outside the extern segment is not trusted to be the same function.
+
+Not checked in IDA:
+
+- whether IDA puts a module's imports in a `SEG_XTRN` segment under their plain names;
+- whether IDA accepts a prototype there.
+
 ## Verification
 
 All numbers from runs on real kernels; the scripts are in `tests/`.
@@ -81,7 +103,7 @@ All numbers from runs on real kernels; the scripts are in `tests/`.
 | The same module with the wrong base (the WSL 6.18 kernel's BTF) | refused with a clear error: 2,419 of 2,601 base string references land mid-string; with its own Debian 13 base, 0 of 1,090 |
 | Public x86-64 Android GKI kernel 6.1.84 (`kernel-6.1` + its `System.map`) | 134,947 BTF types; 58,909 of 61,982 named kernel functions (95.0%) have a BTF prototype to apply (names from `System.map`, which the plugin does not read: in IDA the kernel needs its symbols, for example via vmlinux-to-elf) |
 | `tests/check_ksymtab.py`: names from `__ksymtab` of a stripped (`objcopy -S`) vmlinux vs the debug vmlinux's symbol table | Debian 13 6.12: 10,497 of 10,497 exported code addresses match, 10,333 have a BTF prototype; Ubuntu 26.04 7.0: 14,717 of 14,717 (writable code-flagged sections excluded), 13,865 |
-| `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 43 IDA API names used, 0 missing |
+| `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 45 IDA API names used, 0 missing |
 | `tests/test_plugin_stub.py` with fake `ida_*` modules | full flow passes |
 
 Not verified: behaviour inside real IDA, including how fast IDA ingests a full kernel's types and whether it rejects specific declarations (the plugin is written to split rejected batches and report them instead of failing; that relies on IDA ignoring a redeclaration when a batch is parsed again; the SDK documents it, since `parse_decls` "always uses the HTI_DCL bit", which means "don't complain about redeclarations" (`typeinf.hpp` in HexRaysSA/ida-sdk), but it has not been observed in IDA). Only x86-64 kernels were used in the offline checks.

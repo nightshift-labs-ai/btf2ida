@@ -2,7 +2,8 @@
 
 One action under Edit > Plugins: BTF2IDA: Apply kernel types and prototypes. It finds BTF in the input
 file or the loaded segments (vmlinux, a kernel module, a raw kernel, a memory image), imports every
-struct, union, enum and typedef, then applies a prototype to each function whose name matches.
+struct, union, enum and typedef, then applies a prototype to each function whose name matches
+(for a kernel module: its own functions, plus the kernel functions it imports, in the extern segment).
 """
 import traceback
 import mmap
@@ -19,6 +20,11 @@ import ida_nalt
 import ida_name
 import idautils
 import idc
+
+try:  # part of IDAPython; only used to type a kernel module's imports, which is skipped without it
+    import ida_segment
+except ImportError:
+    ida_segment = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
@@ -162,14 +168,49 @@ def name_exports():
     return named
 
 
-def apply_prototypes(prototypes, progress=None):
-    """Type every function found by exact name; compiler-rewritten clones are left alone."""
-    result = {"applied": 0, "rejected": [], "absent": 0, "not_function": 0, "clones": 0, "kept": 0}
-    wanted = dict(prototypes)
-    for index, (name, declaration) in enumerate(prototypes):
-        if progress and index % 500 == 0 and progress(index, len(prototypes)):
+def in_extern_segment(address):
+    """True if IDA put this address in an extern segment (SEG_XTRN), where a module's imports are.
+
+    segtype() rather than getseg().type: getseg is marked deprecated in the IDA 9.5 SDK (segment.hpp).
+    Any failure counts as "no", which only leaves that import untyped.
+    """
+    if ida_segment is None:
+        return False
+    try:
+        return ida_segment.segtype(address) == ida_segment.SEG_XTRN
+    except Exception:  # noqa: BLE001  (an optional step must never stop the import)
+        return False
+
+
+def set_prototype(address, name, declaration, result, is_import=False):
+    if ida_nalt.is_userti(address):  # typed by hand or by an earlier run: never overwrite it
+        result["kept"] += 1
+    elif idc.SetType(address, declaration + ";"):
+        result["imports" if is_import else "applied"] += 1
+    else:
+        result["imports_rejected" if is_import else "rejected"].append(name)
+
+
+def apply_prototypes(prototypes, progress=None, imported=()):
+    """Type every function found by exact name; compiler-rewritten clones are left alone.
+
+    For a kernel module, `prototypes` are its own functions and `imported` are vmlinux's: those are
+    applied only to names in an extern segment (the kernel functions the module calls). vmlinux
+    functions the module does not use are not "missing", so they are not counted.
+    """
+    result = {"applied": 0, "rejected": [], "absent": 0, "not_function": 0, "clones": 0, "kept": 0, "imports": 0, "imports_rejected": []}
+    wanted = dict(imported)
+    wanted.update(prototypes)
+    jobs = [(name, declaration, False) for name, declaration in prototypes]
+    jobs += [(name, declaration, True) for name, declaration in imported]
+    for index, (name, declaration, is_import) in enumerate(jobs):
+        if progress and index % 500 == 0 and progress(index, len(jobs)):
             break
         address = idc.get_name_ea_simple(name)
+        if is_import:
+            if address != idc.BADADDR and in_extern_segment(address):
+                set_prototype(address, name, declaration, result, is_import=True)
+            continue
         if address == idc.BADADDR:
             result["absent"] += 1
             continue
@@ -177,13 +218,7 @@ def apply_prototypes(prototypes, progress=None):
         if function is None or function.start_ea != address:
             result["not_function"] += 1
             continue
-        if ida_nalt.is_userti(address):  # typed by hand or by an earlier run: never overwrite it
-            result["kept"] += 1
-            continue
-        if idc.SetType(address, declaration + ";"):
-            result["applied"] += 1
-        else:
-            result["rejected"].append(name)
+        set_prototype(address, name, declaration, result)
     for address in idautils.Functions():
         name = idc.get_func_name(address)
         if any(mark in name for mark in SUFFIXES) and name.split(".")[0] in wanted:
@@ -199,6 +234,10 @@ def report(source, generator, failed, result, named=0, cancelled=False):
         "Declarations sent to IDA: %d structs, %d unions, %d enums, %d typedefs (%d rejected by IDA)" % (stats["structs"], stats["unions"], stats["enums"], stats["typedefs"], len(failed)),
         "Named %d exported functions from __ksymtab (the database had no name there)" % named,
         "Prototypes applied to %d functions; rejected by IDA %d; not in this database %d; name is not a function start %d" % (result["applied"], len(result["rejected"]), result["absent"], result["not_function"]),
+    ]
+    if generator.btf.base is not None:  # a kernel module: the counts above cover its own functions only
+        lines.append("Typed %d imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA %d" % (result["imports"], len(result["imports_rejected"])))
+    lines += [
         "Left untyped on purpose: %d compiler clones (.isra, .constprop, .part, .cold), their ABI may differ" % result["clones"],
         "Kept as they were: %d functions that already had a user-set type" % result["kept"],
     ]
@@ -215,7 +254,11 @@ def run_import():
     generator = btf2c.Generator(data, pointer_size)
     declarations = generator.declarations()
     # 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate.
-    prototypes = generator.prototypes() if pointer_size == 8 else []
+    prototypes, imported = [], []
+    if pointer_size == 8 and data.base is not None:  # a kernel module: split BTF on top of vmlinux's
+        prototypes, imported = generator.prototypes(data.own), generator.prototypes(data.base)
+    elif pointer_size == 8:
+        prototypes = generator.prototypes()
 
     def types_progress(done, total):
         ida_kernwin.replace_wait_box("BTF2IDA: importing types (%d of %d)" % (done, total))
@@ -227,7 +270,7 @@ def run_import():
 
     failed = import_in_batches(declarations, parse_batch, progress=types_progress)
     named = name_exports() if prototypes and not ida_kernwin.user_cancelled() else 0
-    result = apply_prototypes(prototypes, proto_progress)
+    result = apply_prototypes(prototypes, proto_progress, imported)
     return report(source, generator, failed, result, named, cancelled=bool(ida_kernwin.user_cancelled()))
 
 

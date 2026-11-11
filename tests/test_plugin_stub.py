@@ -136,7 +136,10 @@ funcs.add_func = lambda ea: calls.append(("add_func", ea)) or True
 iname = types.ModuleType("ida_name")
 iname.SN_NOCHECK, iname.SN_NOWARN = 1, 256
 iname.set_name = lambda ea, n, f: calls.append(("set_name", ea, n, f)) or True
-sys.modules.update(ida_kernwin=kw, ida_idaapi=api, ida_ida=ida, idc=idc, ida_funcs=funcs, idautils=autos, ida_bytes=dbytes, ida_nalt=nalt, ida_name=iname)
+seg = types.ModuleType("ida_segment")
+seg.SEG_XTRN, seg.SEG_CODE = 1, 2                                      # values from the SDK's segment.hpp
+seg.segtype = lambda ea: calls.append(("segtype", ea)) or (seg.SEG_XTRN if 0x8000 <= ea < 0x9000 else seg.SEG_CODE)
+sys.modules.update(ida_kernwin=kw, ida_idaapi=api, ida_ida=ida, idc=idc, ida_funcs=funcs, idautils=autos, ida_bytes=dbytes, ida_nalt=nalt, ida_name=iname, ida_segment=seg)
 
 import btf2ida_entry as m  # noqa: E402
 
@@ -151,6 +154,72 @@ message = [c[1] for c in calls if c[0] == "info"][0]
 assert "applied to 1 functions" in message and "not in this database 1" in message and "not a function start 1" in message and "1 compiler clones" in message, message
 assert m.import_in_batches(["a;", "BAD;", "b;"], lambda t: t.count("BAD"), batch=2) == ["BAD;"]
 assert "Named 0 exported functions" in message, message
+assert "imported kernel functions" not in message and not [c for c in calls if c[0] == "segtype"], "a whole kernel never looks for externs"
+
+# A kernel module (split BTF): its own functions are typed and counted as before. vmlinux's functions are
+# typed only where IDA lists them in an extern segment; the others are not counted as missing.
+vb = Build()
+vb.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                   # 1
+vb.t("", 13, 1, 1, struct.pack("<II", vb.s("x"), 1))                    # 2  int (int x)
+vb.t("imp_fn", 12, 0, 2)                                                 # 3  called by the module: in the extern segment
+vb.t("base_local", 12, 0, 2)                                             # 4  a module function of the same name, in code
+vb.t("unused_base", 12, 0, 2)                                            # 5  not used by the module
+
+
+class Split(Build):
+    """Module BTF: type ids and string offsets continue those of the base."""
+    def __init__(self, base):
+        Build.__init__(self)
+        self.strs, self.offset = b"", len(base.strs)
+
+    def s(self, text):
+        return Build.s(self, text) + self.offset if text else 0
+
+
+mb = Split(vb)
+mb.t("mod_fn", 12, 0, 2)                                                 # 6
+mb.t("mod_gone", 12, 0, 2)                                               # 7  not in the database
+with tempfile.TemporaryDirectory() as folder:
+    paths = {}
+    for label, blob in (("vmlinux.btf", vb.blob()), ("mod.ko", mb.blob())):
+        paths[label] = os.path.join(folder, label)
+        with open(paths[label], "wb") as handle:
+            handle.write(blob)
+    nalt.get_input_file_path = lambda: paths["mod.ko"]
+    kw.ask_file = lambda save, default, prompt: paths["vmlinux.btf"]
+    idc.get_name_ea_simple = lambda n: {"mod_fn": 0x1000, "imp_fn": 0x8000, "base_local": 0x1100}.get(n, idc.BADADDR)
+    whole_get_func = funcs.get_func
+    funcs.get_func = lambda ea: types.SimpleNamespace(start_ea=ea) if ea in (0x1000, 0x1100) else None
+    del calls[:]
+    assert m.ApplyBTF().activate(None) == 1
+    assert [c for c in calls if c[0] == "settype"] == [("settype", 0x1000, "int mod_fn(int x);"),
+                                                        ("settype", 0x8000, "int imp_fn(int x);")], calls
+    message = [c[1] for c in calls if c[0] == "info"][0]
+    assert "applied to 1 functions" in message and "not in this database 1;" in message, message
+    assert "Typed 1 imported kernel functions in the extern segment" in message, message
+    # The extern check can never stop the run: an error, or no ida_segment at all, only skips the imports.
+    own, imports = [("mod_fn", "int mod_fn(int x)")], [("imp_fn", "int imp_fn(int x)")]
+    def broken(ea):
+        raise RuntimeError("synthetic")
+    seg.segtype = broken
+    result = m.apply_prototypes(own, None, imports)
+    assert (result["applied"], result["imports"], result["absent"]) == (1, 0, 0), result
+    m.ida_segment = None
+    result = m.apply_prototypes(own, None, imports)
+    assert (result["applied"], result["imports"], result["absent"]) == (1, 0, 0), result
+    m.ida_segment = seg
+    seg.segtype = lambda ea: seg.SEG_XTRN
+    user_typed.add(0x8000)                                               # an import typed by hand is kept
+    result = m.apply_prototypes(own, None, imports)
+    assert (result["imports"], result["kept"]) == (0, 1), result
+    user_typed.discard(0x8000)
+    seg.segtype = lambda ea: seg.SEG_XTRN if ea == 0x8000 else seg.SEG_CODE
+    idc.SetType = lambda ea, d: ea != 0x8000                             # IDA refuses the import's prototype
+    result = m.apply_prototypes(own, None, imports)
+    assert (result["applied"], result["rejected"], result["imports"], result["imports_rejected"]) == (1, [], 0, ["imp_fn"]), result
+    idc.SetType = lambda ea, d: calls.append(("settype", ea, d)) or True
+    nalt.get_input_file_path = lambda: ""
+    funcs.get_func = whole_get_func
 # __ksymtab naming: skip data, user names and names already in use; create a missing function first.
 with tempfile.NamedTemporaryFile() as fake_input:
     fake_input.write(b"placeholder")

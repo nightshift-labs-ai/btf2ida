@@ -383,10 +383,11 @@ class Generator:
                     forward.append("%s %s;" % (keyword, self.tags[t.id]))
         return forward + self.body
 
-    def prototypes(self):
-        """[(function name, C declaration)] for every named BTF function."""
+    def prototypes(self, types=None):
+        """[(function name, C declaration)] for every named BTF function, or for those in `types` only
+        (for a kernel module: data.own = its own functions, data.base = vmlinux's)."""
         out, seen = [], set()
-        for t in self.btf:
+        for t in self.btf if types is None else types:
             if t.kind != B.FUNC or t.name in seen or ident(t.name) != t.name:
                 continue
             seen.add(t.name)

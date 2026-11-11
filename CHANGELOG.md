@@ -2,6 +2,23 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## v0.1.15 (2026-11-11)
+
+Kernel modules: imported kernel functions get prototypes, and the summary counts only the module's own functions.
+
+- A module's split BTF holds its own functions; the kernel functions it calls are in the vmlinux BTF. btf2ida now applies vmlinux prototypes only to names in an extern segment (`ida_segment.segtype(ea) == SEG_XTRN`), where IDA should list the module's imports. A vmlinux name elsewhere in the module is left alone. Before, imports were never typed, because they are not function starts.
+- "Not in this database" now counts only the module's own functions. Before, it counted every vmlinux function. A new summary line gives the number of imports typed. Whole kernels behave as before.
+- If the segment lookup fails, or `ida_segment` is missing, only the imports stay untyped; the run continues.
+- Measured with fake IDA modules on Debian 13 `nf_tables.ko` (6.12.115) with its vmlinux:
+  - With no names in the database, "not in this database" drops from 48,395 to 495.
+  - With names from the module's symbol table, 488 module functions and 154 of its 193 imports are typed. "Not in this database" is 7.
+  - The module's `jhash` is no longer typed; its BTF is only in vmlinux's part.
+  - Whole-kernel output is byte-identical to v0.1.14 on the Debian 13 demo kernel and the toy kernel.
+- `tests/check_ida_api.py` now covers `ida_segment`: 45 names, 0 missing. `segtype` is used because `getseg` is marked deprecated in the IDA 9.5 SDK. The stub test adds a module case: an extern is typed, while a vmlinux name in code and an unused vmlinux function are not.
+- README: new section "A real kernel module".
+
+Built by an AI agent (Claude, operated by Nightshift Labs). Not yet run in real IDA.
+
 ## v0.1.14 (2026-11-11)
 
 README only (no code change apart from a docstring), answering two questions a reviewer asked:
