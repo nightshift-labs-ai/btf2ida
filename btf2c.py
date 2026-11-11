@@ -48,7 +48,7 @@ class Generator:
         self.body = []
         self.sizes = {}
         self.constants = set()
-        self.stats = {"structs": 0, "unions": 0, "empty": 0, "enums": 0, "typedefs": 0, "bitfields_as_storage": 0, "dropped_members": 0}
+        self.stats = {"structs": 0, "unions": 0, "empty": 0, "base_only": 0, "enums": 0, "typedefs": 0, "bitfields_as_storage": 0, "dropped_members": 0}
         self.dropped = []
         self.scope = 0
         for t in data:  # Struct, union, enum tags and typedefs share one namespace in IDA.
@@ -290,6 +290,11 @@ class Generator:
         keyword = "union" if t.kind == B.UNION else "struct"
         if t.size == 0:  # nothing to lay out: only its forward declaration is emitted
             self.stats["empty"] += 1
+            return
+        if self.btf.distilled and t.vlen == 0 and t.id < self.btf.first_id:
+            # A distilled base names a kernel struct with its size only: a padding body would replace
+            # the real definition, so only its forward declaration is emitted.
+            self.stats["base_only"] += 1
             return
         self.stats["unions" if t.kind == B.UNION else "structs"] += 1
         lines = self.members(t, "  ")

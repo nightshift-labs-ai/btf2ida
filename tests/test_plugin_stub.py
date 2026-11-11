@@ -95,6 +95,26 @@ etext = btf2c.header(egen)
 assert "struct lock_class_key;" in etext and "struct lock_class_key {" not in etext, etext
 assert egen.stats["empty"] == 1 and egen.stats["structs"] == 1, egen.stats
 
+# An external module with a distilled .BTF.base (Linux 6.12+): its split BTF sits on that small base, which
+# names kernel structs by size only. They must stay forward declarations (a padding body would replace the real one).
+dbase = Build()
+dbase.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                               # 1
+dbase.t("sk_buff", 4, 0, 232)                                                         # 2  name + size only
+dbase_raw = dbase.blob()
+dsplit_strs = b"skb\0mod_xmit\0"
+skb_off, fn_off = len(dbase.strs), len(dbase.strs) + 4
+dsplit_types = (struct.pack("<III", 0, 2 << 24, 2)                                      # 3  struct sk_buff *
+                + struct.pack("<III", 0, 13 << 24 | 1, 1) + struct.pack("<II", skb_off, 3)  # 4  int (struct sk_buff *)
+                + struct.pack("<III", fn_off, 12 << 24, 4))                             # 5  mod_xmit
+dsplit_raw = struct.pack("<HBBIIIII", 0xEB9F, 1, 0, 24, 0, len(dsplit_types), len(dsplit_types), len(dsplit_strs)) + dsplit_types + dsplit_strs
+distilled_ko = tiny_rel([b".gnu.linkonce.this_module", (b".BTF.base", dbase_raw), (b".BTF", dsplit_raw)])
+ddata = B.load(distilled_ko)
+assert ddata.distilled and ddata.count == 5 and B.load(distilled_ko, base=B.BTF(raw)).distilled, "own .BTF.base wins over a given base"
+dgen = btf2c.Generator(ddata)
+dtext = btf2c.header(dgen)
+assert "struct sk_buff;" in dtext and "struct sk_buff {" not in dtext and dgen.stats["base_only"] == 1, (dtext, dgen.stats)
+assert dgen.prototypes(ddata.own) == [("mod_xmit", "int mod_xmit(struct sk_buff *skb)")], dgen.prototypes(ddata.own)
+
 try:  # split BTF: strings that do not start with NUL
     B.BTF(struct.pack("<HBBIIIII", 0xEB9F, 1, 0, 24, 0, 0, 0, 2) + b"a\0")
     raise SystemExit("split BTF was accepted without a base")

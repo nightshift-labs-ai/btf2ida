@@ -2,6 +2,10 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## Unreleased
+
+- External modules with a distilled `.BTF.base` (Linux 6.12+ builds outside the kernel tree): the split `.BTF` is read on top of the module's own `.BTF.base`, so no vmlinux is needed and the module's own types and prototypes are imported. The kernel structs that base names by size only get a forward declaration only (before this, a vmlinux was demanded and then refused as a mismatch; a padding body like `unsigned char __pad_0[232]` for `sk_buff` would also have replaced a real definition). The summary says so; the kernel functions such a module calls are not typed. Non-distilled inputs give byte-identical output (WSL 6.18 header and prototypes, Debian 13 nf_tables.ko, toy). Checked only on synthetic modules: stub-test case and a hand-made `.ko`. Not yet run in real IDA.
+
 ## v0.1.19 (2026-11-12)
 
 - The summary counts empty structs and unions (size 0 in BTF, forward declaration only) apart: "Declarations sent to IDA: ... ; N empty structs/unions as forward declarations only". Before, they were counted as structs although no body was sent (Debian 13 nf_tables.ko: 470 of the 8,619 counted). Stub test case. README: a "Known limitations" list in the Status section (32-bit, no names, layout details, empty structs, clones, modules without BTF, distilled `.BTF.base` not supported yet).

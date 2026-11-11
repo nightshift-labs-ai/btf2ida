@@ -48,6 +48,7 @@ class Header:
 class BTF:
     def __init__(self, blob, base=None, offset=0):
         head = Header(blob, offset)
+        self.distilled = False  # True when the base is a module's own distilled .BTF.base, not vmlinux
         self.unchecked_release: "str | None" = None  # set by the plugin when a module's vmlinux could not be matched by release
         self.endian = head.endian
         self.size_on_disk = head.total
@@ -327,6 +328,11 @@ def load(blob, base=None):
             pass
     section = elf_section(blob)
     if section:
+        distilled = elf_section(blob, b".BTF.base")
+        if distilled:  # an external module (Linux 6.12+): its split BTF sits on this small base, not on vmlinux
+            data = BTF(section, base=BTF(distilled))
+            data.distilled = True
+            return data
         return BTF(section, base=base)
     found = carve(blob, base=base, little=None)
     if found is None:

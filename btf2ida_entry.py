@@ -305,10 +305,16 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
     elif no_own_btf:
         lines.append("This kernel module has no BTF of its own (distribution out-of-tree modules are often built without it): "
                      "its own functions get no prototype; the kernel functions it calls are typed from the vmlinux BTF.")
+    distilled = generator.btf.distilled
+    if distilled:
+        lines.append("This module carries a distilled base BTF (.BTF.base; external modules built on Linux 6.12 or newer): "
+                     "its own functions are typed; %d kernel structs/unions it uses are known only by name and size, so only "
+                     "a forward declaration is sent for them; the kernel functions it calls are not typed (their prototypes "
+                     "are only in vmlinux's BTF)." % stats["base_only"])
     if no_own_btf and getattr(generator.btf, "unchecked_release", None):
         lines.append("Not checked: the module was built for %s, and the chosen file has no 'Linux version' banner "
                      "(raw BTF?), so make sure it comes from that same build." % generator.btf.unchecked_release)
-    if (generator.btf.base is not None or no_own_btf) and not no_prototypes_32:  # a module: the counts above are its own functions
+    if (generator.btf.base is not None or no_own_btf) and not no_prototypes_32 and not distilled:  # a module: the counts above are its own functions
         lines.append("Typed %d imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA %d" % (result["imports"], len(result["imports_rejected"])))
     lines += [
         "Left untyped on purpose: %d compiler clones (.isra, .constprop, .part, .cold), their ABI may differ" % result["clones"],
