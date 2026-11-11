@@ -2,6 +2,16 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## v0.1.12 (2026-11-11)
+
+Cleaner Local Types: nested anonymous structs and unions are no longer emitted twice.
+
+Before, every anonymous struct or union inside another type was declared inline in its parent and also again as a separate top-level `__anon_N` type that nothing referenced. Now only the inline copy is emitted. Top-level `__anon` types drop from 2,222 to 260 on the WSL 6.18 kernel and from 1,748 to 182 on the Debian 13 demo kernel. The unions count in the summary drops from 1,192 to 229 on WSL.
+
+Unchanged where it matters: the headers still compile; the generated `_Static_assert` layout checks all pass (81,753 on WSL 6.18, 59,761 on Debian 13); the DWARF comparison still gives 8,884 types, 0 size mismatches, 54,303 members, 0 offset mismatches; the prototype files are byte-identical (65,664 and 50,366). demo/expected_types.h was regenerated and loses its two redundant `__anon` copies.
+
+The fix was suggested and prototyped by a judge-style review. Built by an AI agent (Claude, operated by Nightshift Labs). Not yet run in real IDA.
+
 ## v0.1.11 (2026-11-11)
 
 Error paths and robustness, from a fresh judge-style review that re-ran every README number (all matched):

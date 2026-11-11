@@ -270,7 +270,11 @@ class Generator:
 
     def deps(self, t):
         for _, m_type, _ in t.data:
-            self.need_complete(m_type)
+            inner = self.strip(m_type)
+            if self.nested(inner):
+                self.deps(inner)  # declared inline by members(): no separate top-level __anon_N copy
+            else:
+                self.need_complete(m_type)
 
     def emit_struct(self, t):
         if t.id in self.done or t.id in self.active:

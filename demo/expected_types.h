@@ -3,8 +3,6 @@
 
 struct demo_ops;
 struct demo_device;
-union __anon_12;
-struct __anon_15;
 typedef unsigned long long size_t;
 
 enum demo_state {
@@ -16,16 +14,6 @@ enum demo_state {
 struct demo_ops {
   int (*open)(struct demo_device *a1, unsigned int a2);
   void (*close)(struct demo_device *a1);
-};
-
-union __anon_12 {
-  void *ptr;
-  unsigned long long raw;
-};
-
-struct __anon_15 {
-  short x;
-  short y;
 };
 
 struct demo_device {
