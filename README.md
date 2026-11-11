@@ -20,7 +20,7 @@ A Linux kernel without its debug package is mostly `__int64 a1`, and matching he
 
 Smallest try, nothing to download: `demo/toy_kernel.elf` (17 KB) is a small program with kernel-style types, built with `gcc -gbtf`, so it carries BTF and no DWARF and IDA has no other source for these types (`demo/build.sh` rebuilds it).
 
-1. Open `demo/toy_kernel.elf` in IDA.
+1. Open `demo/toy_kernel.elf` in IDA (after `hcli plugin install`, it is in the plugin's folder: `$IDAUSR/plugins/btf2ida/demo/`).
 2. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**.
 3. `demo_open` should become `int demo_open(struct demo_device *dev, unsigned int flags)` (all five prototypes are in `demo/expected_prototypes.txt`), and Local Types should hold `struct demo_device` as in `demo/expected_types.h`: bitfields as raw bytes with their names in a comment, `private` renamed `private_`, the flexible array as a comment.
 
@@ -84,7 +84,7 @@ It opens the file as a database, runs the same import as the menu action, prints
 
 A module's BTF is split: its own functions are in the module, while the kernel functions it calls are in vmlinux's BTF. btf2ida applies the module's own prototypes by name, as for a whole kernel. It applies vmlinux prototypes only to names in an extern segment (`SEG_XTRN`), where the module's imports should be. "Not in this database" counts only the module's own functions.
 
-Debian 13 `nf_tables.ko` (6.12.115+deb13.1-cloud-amd64), with that kernel's vmlinux as the base:
+Debian 13 `nf_tables.ko` (6.12.115+deb13.1-cloud-amd64), with that kernel's vmlinux as the base. To re-run it, see [Try a real module](#try-a-real-module) below (`tests/check_module.py`; `--no-names` for the first row):
 
 | Fake database | v0.1.14 | v0.1.15 |
 |---|---|---|
@@ -101,6 +101,35 @@ Not checked in IDA:
 
 - whether IDA puts a module's imports in a `SEG_XTRN` segment under their plain names;
 - whether IDA accepts a prototype there.
+
+### Try a real module
+
+A module opens in IDA in seconds, so it is the quickest try on real kernel code. Debian 13's cloud kernel package (35 MB) holds both the module and its kernel:
+
+```
+curl -LO https://deb.debian.org/debian/pool/main/l/linux-signed-amd64/linux-image-6.12.115+deb13.1-cloud-amd64_6.12.115-2_amd64.deb
+dpkg-deb -x linux-image-6.12.115+deb13.1-cloud-amd64_6.12.115-2_amd64.deb deb    # or: ar x the .deb, then tar -xf data.tar.xz -C deb
+xz -dc deb/usr/lib/modules/6.12.115+deb13.1-cloud-amd64/kernel/net/netfilter/nf_tables.ko.xz > nf_tables.ko
+curl -LO https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-vmlinux
+sh extract-vmlinux deb/boot/vmlinuz-6.12.115+deb13.1-cloud-amd64 > vmlinux    # needs zstd (unzstd) installed
+```
+
+SHA-256 of the results: `nf_tables.ko` 670cb309625f77c0…, `vmlinux` f741142f44058b03…. If the Debian pool no longer has this version, the same package is kept on snapshot.debian.org; another Debian 13 cloud kernel works the same way, with other numbers.
+
+In IDA: open `nf_tables.ko`, run **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes** and choose `vmlinux` when it asks; `nla_put` in the extern segment should get `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`. Outside IDA, the same import on a fake database (stand-in IDA modules, see the script's docstring):
+
+```
+python3 tests/check_module.py nf_tables.ko vmlinux
+```
+
+prints, among the summary lines:
+
+```
+Prototypes applied to 488 functions; rejected by IDA 0; not in this database 7; name is not a function start 0
+Typed 154 imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA 0
+```
+
+For the no-BTF case: `objcopy --remove-section .BTF nf_tables.ko nf_tables_nobtf.ko`, then the same command on `nf_tables_nobtf.ko` gives "Prototypes applied to 0 functions", the line "This kernel module has no BTF of its own ..." and the same 154 imports.
 
 ## Verification
 

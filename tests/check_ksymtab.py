@@ -48,4 +48,6 @@ def main(stripped_path, debug_path):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        sys.exit("usage: python3 tests/check_ksymtab.py <vmlinux-stripped> <vmlinux-with-symbols>")
     sys.exit(main(sys.argv[1], sys.argv[2]))

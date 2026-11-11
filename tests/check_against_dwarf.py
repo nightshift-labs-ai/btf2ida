@@ -59,4 +59,7 @@ def main():
     print("first mismatches:", bad[:12])
 
 
-main()
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        sys.exit("usage: python3 tests/check_against_dwarf.py <vmlinux> <kernel ISF .json.xz>")
+    main()
