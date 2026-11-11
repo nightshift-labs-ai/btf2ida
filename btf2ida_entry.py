@@ -279,10 +279,13 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
     if no_prototypes_32:
         lines.append("Prototypes not applied: this is a 32-bit database. 32-bit x86 kernels pass arguments in registers "
                      "(regparm), which a plain C prototype would misstate, so btf2ida only imports types on 32-bit.")
-    if no_own_btf:
+    if no_own_btf and no_prototypes_32:
+        lines.append("This kernel module has no BTF of its own (distribution out-of-tree modules are often built without it): "
+                     "the types come from the vmlinux BTF; no prototype was applied (32-bit, see above).")
+    elif no_own_btf:
         lines.append("This kernel module has no BTF of its own (distribution out-of-tree modules are often built without it): "
                      "its own functions get no prototype; the kernel functions it calls are typed from the vmlinux BTF.")
-    if generator.btf.base is not None or no_own_btf:  # a kernel module: the counts above cover its own functions only
+    if (generator.btf.base is not None or no_own_btf) and not no_prototypes_32:  # a module: the counts above are its own functions
         lines.append("Typed %d imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA %d" % (result["imports"], len(result["imports_rejected"])))
     lines += [
         "Left untyped on purpose: %d compiler clones (.isra, .constprop, .part, .cold), their ABI may differ" % result["clones"],

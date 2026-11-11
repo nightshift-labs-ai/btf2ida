@@ -32,6 +32,20 @@ class Build:
         return struct.pack("<HBBIIIII", 0xEB9F, 1, 0, 24, 0, len(self.types), len(self.types), len(self.strs)) + self.types + self.strs
 
 
+def tiny_rel(section_names):
+    """A minimal ELF64 little-endian relocatable file with the given empty sections and a .shstrtab."""
+    names = b"\0" + b"".join(n + b"\0" for n in section_names) + b".shstrtab\0"
+    shoff = (64 + len(names) + 7) & ~7
+    headers, at = [bytes(64)], 1
+    for n in section_names:
+        headers.append(struct.pack("<IIQQQQIIQQ", at, 1, 0, 0, 64, 0, 0, 0, 1, 0))
+        at += len(n) + 1
+    headers.append(struct.pack("<IIQQQQIIQQ", at, 3, 0, 0, 64, len(names), 0, 0, 1, 0))
+    ehdr = b"\x7fELF\x02\x01\x01" + bytes(9) + struct.pack(
+        "<HHIQQQIHHHHHH", 1, 62, 1, 0, 0, shoff, 0, 64, 0, 0, 64, len(headers), len(headers) - 1)
+    return ehdr + names + bytes(shoff - 64 - len(names)) + b"".join(headers)
+
+
 b = Build()
 b.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                   # 1
 b.t("", 2, 0, 5)                                                                      # 2  struct task *
@@ -244,7 +258,9 @@ with tempfile.TemporaryDirectory() as folder:
     # A kernel module with no BTF of its own: only its imports are typed, from the chosen vmlinux.
     nobtf = os.path.join(folder, "nobtf.ko")
     with open(nobtf, "wb") as handle:
-        handle.write(b"\x7fELF" + bytes(12) + b"\x01\x00" + bytes(46) + b".gnu.linkonce.this_module\x00")
+        handle.write(tiny_rel([b".gnu.linkonce.this_module"]))
+    assert not B.is_kernel_module(tiny_rel([b".text"]) + b".gnu.linkonce.this_module\x00"), "the string alone is not a module"
+    assert not B.is_kernel_module(tiny_rel([b".gnu.linkonce.this_module"])[:70]), "truncated"
     nalt.get_input_file_path = lambda: nobtf
     whole_segments = autos.Segments
     autos.Segments = lambda: []
@@ -252,6 +268,10 @@ with tempfile.TemporaryDirectory() as folder:
     message = m.run_import()
     assert "no BTF of its own" in message and "Typed 1 imported kernel functions" in message, message
     assert [c for c in calls if c[0] == "settype"] == [("settype", 0x8000, "int imp_fn(int x);")], calls
+    ida.inf_is_64bit = lambda: False  # 32-bit: the summary must not claim the imports were typed
+    message32 = m.run_import()
+    assert "no prototype was applied (32-bit" in message32 and "Typed " not in message32, message32
+    ida.inf_is_64bit = lambda: True
     try:
         m.run_import(None, ask=False)
         raise AssertionError("a module without BTF and without vmlinux must fail")

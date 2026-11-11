@@ -262,9 +262,18 @@ def carve(blob, base=None, little=True, min_types=None):
 
 
 def is_kernel_module(blob):
-    """True for an ELF relocatable object that is a Linux kernel module (it carries .gnu.linkonce.this_module)."""
-    return (len(blob) >= 64 and blob[:4] == b"\x7fELF" and blob[16:18] in (b"\x01\x00", b"\x00\x01")
-            and blob.find(b".gnu.linkonce.this_module") != -1)
+    """True for an ELF relocatable object with a .gnu.linkonce.this_module section (a Linux kernel module).
+
+    A section lookup, not a string search: vmlinux and the kernel's own module loader hold that string too.
+    """
+    if len(blob) < 64 or blob[:4] != b"\x7fELF" or blob[5] not in (1, 2):
+        return False
+    try:
+        if struct.unpack_from("<H" if blob[5] == 1 else ">H", blob, 16)[0] != 1:  # ET_REL
+            return False
+        return elf_section(blob, b".gnu.linkonce.this_module") is not None
+    except (struct.error, IndexError, ValueError):
+        return False
 
 
 def load_base(blob, path):
