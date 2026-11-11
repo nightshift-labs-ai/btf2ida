@@ -341,7 +341,6 @@ def run_import(vmlinux=None, ask=True):
     procname = (getattr(ida_ida, "inf_get_procname", lambda: None)() or "").lower()
     regparm = pointer_size == 4 and procname in ("", "metapc")
     declarations = generator.declarations()
-    # 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate.
     prototypes, imported = [], []
     if not regparm and data.base is not None:  # a kernel module: split BTF on top of vmlinux's
         prototypes, imported = generator.prototypes(data.own), generator.prototypes(data.base)
