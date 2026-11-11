@@ -271,7 +271,8 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
     lines = ["CANCELLED: the import stopped early, so only part of what is listed below reached the database."] if cancelled else []
     lines += [
         "BTF from %s: %d types" % (source, generator.btf.count),
-        "Declarations sent to IDA: %d structs, %d unions, %d enums, %d typedefs (%d rejected by IDA)" % (stats["structs"], stats["unions"], stats["enums"], stats["typedefs"], len(failed)),
+        "Declarations sent to IDA: %d structs, %d unions, %d enums, %d typedefs (%d rejected by IDA); "
+        "%d empty structs/unions as forward declarations only" % (stats["structs"], stats["unions"], stats["enums"], stats["typedefs"], len(failed), stats["empty"]),
         "Named %d exported functions from __ksymtab (the database had no name there)" % named,
         "Prototypes applied to %d functions; rejected by IDA %d; not in this database %d; name is not a function start %d" % (result["applied"], len(result["rejected"]), result["absent"], result["not_function"]),
     ]

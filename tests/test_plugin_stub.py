@@ -68,6 +68,17 @@ with tempfile.TemporaryDirectory() as folder:
         handle.write(text + "_Static_assert(sizeof(struct task) == 32, \"size\");\n_Static_assert(__builtin_offsetof(struct task, cb) == 8, \"cb\");\n")
     subprocess.run(["gcc", "-fsyntax-only", "-w", path], check=True)
 
+# An empty struct (size 0 in BTF) gets a forward declaration only and is counted apart from real bodies.
+e = Build()
+e.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                   # 1
+e.t("lock_class_key", 4, 0, 0)                                                        # 2  empty struct
+e.t("", 2, 0, 2)                                                                      # 3  pointer to it
+e.t("holder", 4, 2, 16, extra=struct.pack("<" + "III" * 2, e.s("key"), 3, 0, e.s("n"), 1, 64))  # 4
+egen = btf2c.Generator(B.BTF(e.blob()))
+etext = btf2c.header(egen)
+assert "struct lock_class_key;" in etext and "struct lock_class_key {" not in etext, etext
+assert egen.stats["empty"] == 1 and egen.stats["structs"] == 1, egen.stats
+
 try:  # split BTF: strings that do not start with NUL
     B.BTF(struct.pack("<HBBIIIII", 0xEB9F, 1, 0, 24, 0, 0, 0, 2) + b"a\0")
     raise SystemExit("split BTF was accepted without a base")

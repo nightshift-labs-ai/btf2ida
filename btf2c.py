@@ -48,7 +48,7 @@ class Generator:
         self.body = []
         self.sizes = {}
         self.constants = set()
-        self.stats = {"structs": 0, "unions": 0, "enums": 0, "typedefs": 0, "bitfields_as_storage": 0, "dropped_members": 0}
+        self.stats = {"structs": 0, "unions": 0, "empty": 0, "enums": 0, "typedefs": 0, "bitfields_as_storage": 0, "dropped_members": 0}
         self.dropped = []
         self.scope = 0
         for t in data:  # Struct, union, enum tags and typedefs share one namespace in IDA.
@@ -288,9 +288,10 @@ class Generator:
         self.done.add(t.id)
         self.scope = 0
         keyword = "union" if t.kind == B.UNION else "struct"
-        self.stats["unions" if t.kind == B.UNION else "structs"] += 1
-        if t.size == 0:
+        if t.size == 0:  # nothing to lay out: only its forward declaration is emitted
+            self.stats["empty"] += 1
             return
+        self.stats["unions" if t.kind == B.UNION else "structs"] += 1
         lines = self.members(t, "  ")
         self.body.append("%s %s {\n%s\n};\n" % (keyword, self.tags[t.id], "\n".join(lines)))
 

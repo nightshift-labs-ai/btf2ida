@@ -43,7 +43,15 @@ Your own kernel: on x86-64, the `vmlinux` inside a distribution's `vmlinuz` (for
 
 **btf2ida has not yet been run inside real IDA.** It was built without an IDA installation. What was checked, and how, is listed under [Verification](#verification): the parsing and the generated types are checked against independent ground truth, while the IDA calls are only checked to exist in the official SDK and run against stubs. If you try it in IDA and something is off, please open an issue.
 
-On a 32-bit database btf2ida imports types only and applies no prototypes (32-bit x86 kernels pass arguments in registers, which a plain C prototype would misstate); the summary says so.
+Known limitations (the summary says so when one of the 32-bit, empty-struct, compiler-clone or no-BTF-module cases applies):
+
+- **32-bit databases** get types only, no prototypes: 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate. The check covers every 32-bit database, ARM and MIPS included.
+- **No function names, no prototypes**: a raw arm64 `Image`, raw BTF or a raw memory image gets types only.
+- **Layout details IDA does not get as types**: bitfields are raw storage bytes with their names in a comment, zero-length trailing arrays are comments, and 1-byte or 64-bit enums are plain unsigned integers without their constants.
+- **Empty structs and unions** (size 0 in BTF) get a forward declaration only; the summary counts them apart.
+- **Compiler clones** (`.isra`, `.constprop`, `.part`, `.cold`) are left untyped, because their calling convention may differ.
+- **A kernel module without BTF of its own**: only the kernel functions it calls are typed (see [A real kernel module](#a-real-kernel-module)).
+- **Out-of-tree modules with a distilled `.BTF.base`** (pahole's `distilled_base`, which the `scripts/Makefile.btf` of Linux 6.12 requests for external modules) are not supported yet: btf2ida reports that the module's BTF does not match the chosen vmlinux. Seen only on a synthetic module here.
 
 btf2ida was built by an AI agent (Claude, operated by Nightshift Labs).
 
