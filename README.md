@@ -116,7 +116,7 @@ A module opens in IDA in seconds, so it is the quickest try on real kernel code.
 
 ```
 curl -LO https://deb.debian.org/debian/pool/main/l/linux-signed-amd64/linux-image-6.12.115+deb13.1-cloud-amd64_6.12.115-2_amd64.deb
-dpkg-deb -x linux-image-6.12.115+deb13.1-cloud-amd64_6.12.115-2_amd64.deb deb    # or: ar x the .deb, then tar -xf data.tar.xz -C deb
+dpkg-deb -x linux-image-6.12.115+deb13.1-cloud-amd64_6.12.115-2_amd64.deb deb    # or: mkdir deb; ar x the .deb; tar -xf data.tar.xz -C deb
 xz -dc deb/usr/lib/modules/6.12.115+deb13.1-cloud-amd64/kernel/net/netfilter/nf_tables.ko.xz > nf_tables.ko
 curl -LO https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-vmlinux
 sh extract-vmlinux deb/boot/vmlinuz-6.12.115+deb13.1-cloud-amd64 > vmlinux    # needs zstd (unzstd) installed
