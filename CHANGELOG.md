@@ -4,6 +4,7 @@ Taken from the GitHub release notes. Newest first.
 
 ## v0.1.20 (2026-11-13)
 
+- `tests/coverage.py <kernel.elf>` re-counts the README's demo coverage figure outside IDA (50,366 prototypes; 46,900 of 51,092 function symbols, 91.8%, on the MemLens demo kernel.elf).
 - External modules with a distilled `.BTF.base` (builds outside the kernel tree on Linux 6.11+ with a recent pahole): the split `.BTF` is read on top of the module's own `.BTF.base`, so no vmlinux is needed and the module's own types and prototypes are imported. The kernel structs that base names by size only get a forward declaration only, and a module struct that holds one by value gets a byte array of the same size there, with the type named in a comment (so the header stays complete and the layout right) (before this, a vmlinux was demanded and then refused as a mismatch; a padding body like `unsigned char __pad_0[232]` for `sk_buff` would also have replaced a real definition). The summary says so; the kernel functions such a module calls are not typed. Non-distilled inputs give byte-identical output (WSL 6.18 header and prototypes, Debian 13 nf_tables.ko, toy). `--asserts` skips the forward-only structs. Checked only on synthetic modules: a stub-test case, a hand-made `.ko`, and Debian 13 nf_tables.ko re-distilled by a script that follows libbpf's rules (56 base-only structs, 102 by-value members as byte arrays; header, header plus prototypes and all `--asserts` checks compile with gcc). Not yet run in real IDA.
 
 ## v0.1.19 (2026-11-12)
