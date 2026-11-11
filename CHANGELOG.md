@@ -2,7 +2,7 @@
 
 Taken from the GitHub release notes. Newest first.
 
-## Unreleased
+## v0.1.19 (2026-11-12)
 
 - Headless runner: a module without `--vmlinux` now stops with "give the matching vmlinux with --vmlinux" instead of reaching IDA's file dialog, which idalib has no window for (`run_import(..., ask=False)`). Stub test case added.
 
