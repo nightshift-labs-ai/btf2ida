@@ -44,6 +44,7 @@ class Generator:
         self.taken = set()
         self.done = set()
         self.active = set()
+        self.anon_by_pointer = set()  # anonymous structs/unions only reached through a pointer
         self.body = []
         self.sizes = {}
         self.constants = set()
@@ -207,6 +208,8 @@ class Generator:
                 self.emit_enum(t)
                 return
             else:
+                if t.kind in (B.STRUCT, B.UNION) and not t.name:
+                    self.anon_by_pointer.add(t.id)
                 return
 
     def need_complete(self, type_id):
@@ -375,6 +378,14 @@ class Generator:
                 self.emit_enum(t)
             elif t.kind == B.FUNC:
                 self.need_name(t.ref)
+        # An anonymous struct or union reached only through a pointer (struct { ... } *parts) got a
+        # __anon_N tag but no body; define it so its members are not lost. Repeat: a body can add more.
+        while True:
+            pending = sorted(self.anon_by_pointer - self.done)
+            if not pending:
+                break
+            for type_id in pending:
+                self.emit_struct(self.btf[type_id])
         forward = []
         for t in self.btf:
             if t.kind in (B.STRUCT, B.UNION) or t.kind == B.FWD:

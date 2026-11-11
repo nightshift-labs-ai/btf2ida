@@ -2,6 +2,16 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## v0.1.16 (2026-11-11)
+
+An anonymous struct or union that the kernel only reaches through a pointer is now defined, so its members are no longer lost (judge-review item).
+
+Example: `struct parsed_partitions` has `struct { ... } *parts;`. Before, the header said `struct __anon_63787 *parts;` and never defined `__anon_63787`, so `parts[i].from` could not be shown. Now it is defined with its real members (`from`, `size`, `flags`, `has_info`, `info`). Anonymous types written inline as members are still not repeated at top level.
+
+Checked: WSL2 kernel header 12,274 → 12,275 structs (exactly this one; top-level `__anon` bodies 260 → 261) and it compiles with `gcc -fsyntax-only`; Debian 13 demo 8,928 → 8,929 structs, compiles; the toy demo output is byte-identical; the BTF-vs-ISF layout check is unchanged (8,884 types, 54,303 members, 0 size or offset mismatches); stub test passes.
+
+Built by an AI agent (Claude, operated by Nightshift Labs). Not yet run in real IDA.
+
 ## v0.1.15 (2026-11-11)
 
 Kernel modules: imported kernel functions get prototypes, and the summary counts only the module's own functions.
