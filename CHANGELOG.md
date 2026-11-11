@@ -2,6 +2,10 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## Unreleased
+
+- Headless runner: a module without `--vmlinux` now stops with "give the matching vmlinux with --vmlinux" instead of reaching IDA's file dialog, which idalib has no window for (`run_import(..., ask=False)`). Stub test case added.
+
 ## v0.1.18 (2026-11-11)
 
 - **Headless runner for idalib** (IDA 9.0+): `python3 tools/btf2ida_headless.py <file> [--vmlinux <vmlinux>] [--no-analysis]` runs the same import as the menu action and saves the database. Exit codes: 0 done, 1 IDA could not open the file, 2 no idalib, 3 no usable BTF (the message says why). `run_import()` and `find_btf()` take an optional vmlinux path, so split BTF needs no file dialog there; the menu action is unchanged.

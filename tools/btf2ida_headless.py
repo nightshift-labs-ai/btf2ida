@@ -40,7 +40,7 @@ def main(argv=None):
     try:
         import btf2ida_entry
         try:
-            message = btf2ida_entry.run_import(args.vmlinux)
+            message = btf2ida_entry.run_import(args.vmlinux, ask=False)  # no dialogs without a window
         except btf2ida_entry.B.BTFError as error:
             print("btf2ida_headless: %s" % error, file=sys.stderr)
             return 3

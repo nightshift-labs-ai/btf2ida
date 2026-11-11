@@ -202,6 +202,11 @@ with tempfile.TemporaryDirectory() as folder:
         raise AssertionError("asked for a file although vmlinux was given")
     kw.ask_file = no_dialog
     assert "BTF from the input file" in m.run_import(paths["vmlinux.btf"])
+    try:  # headless without --vmlinux: a clear error, never a dialog
+        m.run_import(None, ask=False)
+        raise AssertionError("split BTF without vmlinux must fail")
+    except B.BTFError as error:
+        assert "--vmlinux" in str(error), error
     kw.ask_file = lambda save, default, prompt: paths["vmlinux.btf"]
     # The extern check can never stop the run: an error, or no ida_segment at all, only skips the imports.
     own, imports = [("mod_fn", "int mod_fn(int x)")], [("imp_fn", "int imp_fn(int x)")]
@@ -252,11 +257,11 @@ idapro.close_database = lambda save: opened.append(("close", save))
 sys.modules["idapro"] = idapro
 import btf2ida_headless as headless  # noqa: E402
 real_run_import = m.run_import
-m.run_import = lambda vmlinux=None: opened.append(("run", vmlinux)) or "summary"
+m.run_import = lambda vmlinux=None, ask=True: opened.append(("run", vmlinux, ask)) or "summary"
 with tempfile.NamedTemporaryFile() as handle:
     assert headless.main([handle.name, "--vmlinux", handle.name, "--no-analysis"]) == 0
-    assert opened == [("open", False), ("run", handle.name), ("close", True)], opened
-    def no_btf(vmlinux=None):
+    assert opened == [("open", False), ("run", handle.name, False), ("close", True)], opened
+    def no_btf(vmlinux=None, ask=True):
         raise B.BTFError("no BTF found in the input file or the loaded segments.")
     m.run_import = no_btf
     del opened[:]
