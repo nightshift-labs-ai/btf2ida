@@ -48,7 +48,7 @@ class Generator:
         self.body = []
         self.sizes = {}
         self.constants = set()
-        self.stats = {"structs": 0, "unions": 0, "empty": 0, "base_only": 0, "enums": 0, "typedefs": 0, "bitfields_as_storage": 0, "dropped_members": 0}
+        self.stats = {"structs": 0, "unions": 0, "empty": 0, "base_only": 0, "opaque_members": 0, "enums": 0, "typedefs": 0, "bitfields_as_storage": 0, "dropped_members": 0}
         self.dropped = []
         self.scope = 0
         for t in data:  # Struct, union, enum tags and typedefs share one namespace in IDA.
@@ -291,7 +291,7 @@ class Generator:
         if t.size == 0:  # nothing to lay out: only its forward declaration is emitted
             self.stats["empty"] += 1
             return
-        if self.btf.distilled and t.vlen == 0 and t.id < self.btf.first_id:
+        if self.base_only(t):
             # A distilled base names a kernel struct with its size only: a padding body would replace
             # the real definition, so only its forward declaration is emitted.
             self.stats["base_only"] += 1
@@ -303,8 +303,33 @@ class Generator:
     def nested(self, t):
         return t is not None and t.kind in (B.STRUCT, B.UNION) and not t.name
 
+    def base_only(self, t):
+        """A kernel struct/union that a module's distilled base BTF knows by name and size only."""
+        return self.btf.distilled and t.kind in (B.STRUCT, B.UNION) and t.vlen == 0 and t.size and t.id < self.btf.first_id
+
+    def opaque(self, type_id):
+        """(bytes, C name) when a member holds base-only structs by value (directly or as an array), else None."""
+        count = 1
+        while type_id:
+            t = self.btf[type_id]
+            if t.kind in MODS or (t.kind == B.TYPEDEF and self.typedef_alias(t)):
+                type_id = t.ref
+            elif t.kind == B.ARRAY:
+                count *= t.data[2]
+                type_id = t.data[0]
+            elif self.base_only(t):
+                return count * t.size, self.spec(t)
+            else:
+                return None
+        return None
+
     def member(self, name, m_type, indent):
         """Lines declaring one non-bitfield member."""
+        opaque = self.opaque(m_type)
+        if opaque:  # its layout is not in the BTF: keep the size, name the type in a comment
+            self.stats["opaque_members"] += 1
+            return ["%sunsigned char %s[%d]; /* %s, known only by name and size (distilled base BTF) */"
+                    % (indent, ident(name) if name else "__anon", opaque[0], opaque[1])]
         t = self.strip(m_type)
         if self.nested(t):
             keyword = "union" if t.kind == B.UNION else "struct"
