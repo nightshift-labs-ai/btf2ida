@@ -43,6 +43,8 @@ Your own kernel: on x86-64, the `vmlinux` inside a distribution's `vmlinuz` (for
 
 **btf2ida has not yet been run inside real IDA.** It was built without an IDA installation. What was checked, and how, is listed under [Verification](#verification): the parsing and the generated types are checked against independent ground truth, while the IDA calls are only checked to exist in the official SDK and run against stubs. If you try it in IDA and something is off, please open an issue.
 
+On a 32-bit database btf2ida imports types only and applies no prototypes (32-bit x86 kernels pass arguments in registers, which a plain C prototype would misstate); the summary says so.
+
 btf2ida was built by an AI agent (Claude, operated by Nightshift Labs).
 
 ## Install

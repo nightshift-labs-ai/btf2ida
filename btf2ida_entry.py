@@ -230,7 +230,7 @@ def apply_prototypes(prototypes, progress=None, imported=()):
     return result
 
 
-def report(source, generator, failed, result, named=0, cancelled=False):
+def report(source, generator, failed, result, named=0, cancelled=False, no_prototypes_32=False):
     stats = generator.stats
     lines = ["CANCELLED: the import stopped early, so only part of what is listed below reached the database."] if cancelled else []
     lines += [
@@ -239,6 +239,9 @@ def report(source, generator, failed, result, named=0, cancelled=False):
         "Named %d exported functions from __ksymtab (the database had no name there)" % named,
         "Prototypes applied to %d functions; rejected by IDA %d; not in this database %d; name is not a function start %d" % (result["applied"], len(result["rejected"]), result["absent"], result["not_function"]),
     ]
+    if no_prototypes_32:
+        lines.append("Prototypes not applied: this is a 32-bit database. 32-bit x86 kernels pass arguments in registers "
+                     "(regparm), which a plain C prototype would misstate, so btf2ida only imports types on 32-bit.")
     if generator.btf.base is not None:  # a kernel module: the counts above cover its own functions only
         lines.append("Typed %d imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA %d" % (result["imports"], len(result["imports_rejected"])))
     lines += [
@@ -275,7 +278,8 @@ def run_import(vmlinux=None, ask=True):
     failed = import_in_batches(declarations, parse_batch, progress=types_progress)
     named = name_exports() if prototypes and not ida_kernwin.user_cancelled() else 0
     result = apply_prototypes(prototypes, proto_progress, imported)
-    return report(source, generator, failed, result, named, cancelled=bool(ida_kernwin.user_cancelled()))
+    return report(source, generator, failed, result, named, cancelled=bool(ida_kernwin.user_cancelled()),
+                  no_prototypes_32=pointer_size != 8)
 
 
 

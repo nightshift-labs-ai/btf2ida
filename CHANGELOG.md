@@ -6,6 +6,7 @@ Taken from the GitHub release notes. Newest first.
 
 - Headless runner: a module without `--vmlinux` now stops with "give the matching vmlinux with --vmlinux" instead of reaching IDA's file dialog, which idalib has no window for (`run_import(..., ask=False)`). Stub test case added.
 - A vmlinux chosen as a module's base (file dialog, `--vmlinux`, or `btf2c.py --base`) that has no BTF now gets a message that names the file and says what to do: a compressed bzImage (recognised by its `HdrS` header) must be extracted first with scripts/extract-vmlinux, otherwise use the uncompressed vmlinux of the same build or a copy of its /sys/kernel/btf/vmlinux. Before, it said only "no BTF found", which read as if the module had none. Checked on Debian 13 nf_tables.ko with its own /boot/vmlinuz (bzImage) and with a file of zeros; the right vmlinux still gives the same output.
+- On a 32-bit database the summary now says why no prototype was applied (types only; 32-bit x86 kernels pass arguments in registers). Before, it showed only "Prototypes applied to 0 functions". README Status notes the limit; stub test case added.
 - README: demo coverage re-counted on the current demo kernel.elf (re-exported with MemLens 0.3.23): 46,900 of 51,092 function symbols (was 46,904 of 51,116 on the older export; still 91.8%).
 - README: the wrong-base row now says 2,451 of 2,601 references on WSL 6.18.33.1 (2,419 was measured on an earlier WSL 6.18 build).
 

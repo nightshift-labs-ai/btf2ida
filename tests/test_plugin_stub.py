@@ -201,7 +201,12 @@ with tempfile.TemporaryDirectory() as folder:
     def no_dialog(*a):
         raise AssertionError("asked for a file although vmlinux was given")
     kw.ask_file = no_dialog
-    assert "BTF from the input file" in m.run_import(paths["vmlinux.btf"])
+    message64 = m.run_import(paths["vmlinux.btf"])
+    assert "BTF from the input file" in message64 and "32-bit database" not in message64, message64
+    ida.inf_is_64bit = lambda: False  # 32-bit: types only, and the summary says why no prototype was applied
+    message32 = m.run_import(paths["vmlinux.btf"])
+    assert "Prototypes not applied: this is a 32-bit database" in message32 and "applied to 0 functions" in message32, message32
+    ida.inf_is_64bit = lambda: True
     try:  # headless without --vmlinux: a clear error, never a dialog
         m.run_import(None, ask=False)
         raise AssertionError("split BTF without vmlinux must fail")
