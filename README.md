@@ -43,7 +43,7 @@ Your own kernel: on x86-64, the `vmlinux` inside a distribution's `vmlinuz` (for
 
 **btf2ida has not yet been run inside real IDA.** It was built without an IDA installation. What was checked, and how, is listed under [Verification](#verification): the parsing and the generated types are checked against independent ground truth, while the IDA calls are only checked to exist in the official SDK and run against stubs. If you try it in IDA and something is off, please open an issue.
 
-Known limitations (the summary says so when one of the 32-bit, empty-struct, compiler-clone or no-BTF-module cases applies):
+Known limitations (the summary says so when one of the 32-bit, empty-struct, compiler-clone, no-BTF-module or distilled-base cases applies):
 
 - **32-bit databases** get types only, no prototypes: 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate. The check covers every 32-bit database, ARM and MIPS included.
 - **No function names, no prototypes**: a raw arm64 `Image`, raw BTF or a raw memory image gets types only.
