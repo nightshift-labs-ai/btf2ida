@@ -197,6 +197,12 @@ with tempfile.TemporaryDirectory() as folder:
     message = [c[1] for c in calls if c[0] == "info"][0]
     assert "applied to 1 functions" in message and "not in this database 1;" in message, message
     assert "Typed 1 imported kernel functions in the extern segment" in message, message
+    # The headless path passes vmlinux directly: no file dialog.
+    def no_dialog(*a):
+        raise AssertionError("asked for a file although vmlinux was given")
+    kw.ask_file = no_dialog
+    assert "BTF from the input file" in m.run_import(paths["vmlinux.btf"])
+    kw.ask_file = lambda save, default, prompt: paths["vmlinux.btf"]
     # The extern check can never stop the run: an error, or no ida_segment at all, only skips the imports.
     own, imports = [("mod_fn", "int mod_fn(int x)")], [("imp_fn", "int imp_fn(int x)")]
     def broken(ea):
@@ -237,6 +243,32 @@ with tempfile.NamedTemporaryFile() as fake_input:
     assert m.name_exports() == 1
     assert ("set_name", 0x3000, "tcp_sendmsg", 257) in calls and ("add_func", 0x3000) in calls, calls
     assert [c for c in calls if c[0] == "set_name"] == [("set_name", 0x3000, "tcp_sendmsg", 257)], calls
+# Headless runner (tools/btf2ida_headless.py) with a FAKE idapro: open, run_import(vmlinux), close + save, exit codes.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+idapro = types.ModuleType("idapro")
+opened = []
+idapro.open_database = lambda path, analysis: opened.append(("open", analysis)) or 0
+idapro.close_database = lambda save: opened.append(("close", save))
+sys.modules["idapro"] = idapro
+import btf2ida_headless as headless  # noqa: E402
+real_run_import = m.run_import
+m.run_import = lambda vmlinux=None: opened.append(("run", vmlinux)) or "summary"
+with tempfile.NamedTemporaryFile() as handle:
+    assert headless.main([handle.name, "--vmlinux", handle.name, "--no-analysis"]) == 0
+    assert opened == [("open", False), ("run", handle.name), ("close", True)], opened
+    def no_btf(vmlinux=None):
+        raise B.BTFError("no BTF found in the input file or the loaded segments.")
+    m.run_import = no_btf
+    del opened[:]
+    assert headless.main([handle.name]) == 3 and opened == [("open", True), ("close", True)], opened
+    idapro.open_database = lambda path, analysis: 1
+    del opened[:]
+    assert headless.main([handle.name]) == 1 and opened == [], opened
+    run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "btf2ida_headless.py"), handle.name],
+                         capture_output=True, text=True)
+    assert run.returncode == 2 and "idalib is not available" in run.stderr, (run.returncode, run.stderr)
+m.run_import = real_run_import
+del sys.modules["idapro"]
 # An unexpected error inside the action becomes one warning, not a traceback dialog.
 def boom():
     raise IndexError("synthetic")

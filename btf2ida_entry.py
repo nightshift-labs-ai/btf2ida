@@ -104,8 +104,8 @@ def from_segments(base):
     return best
 
 
-def find_btf():
-    """(BTF, where it came from). Asks for vmlinux only when the data is split BTF."""
+def find_btf(vmlinux=None):
+    """(BTF, where it came from). For split BTF it uses the vmlinux path given, or asks for one."""
     base = None
     for attempt in range(2):
         try:
@@ -117,9 +117,11 @@ def find_btf():
         except B.NeedsBase:
             if attempt:
                 raise
-            ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
-            path = ida_kernwin.ask_file(False, None, FILE_PROMPT)
-            ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
+            path = vmlinux
+            if not path:
+                ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
+                path = ida_kernwin.ask_file(False, None, FILE_PROMPT)
+                ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
             if not path:
                 raise B.BTFError("this is split BTF (a kernel module): it needs the matching vmlinux, and none was chosen.")
             with open(path, "rb") as handle:
@@ -246,8 +248,8 @@ def report(source, generator, failed, result, named=0, cancelled=False):
     return "\n".join(lines)
 
 
-def run_import():
-    data, source = find_btf()
+def run_import(vmlinux=None):
+    data, source = find_btf(vmlinux)
     if data is None:
         raise B.BTFError("no BTF found in the input file or the loaded segments.")
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4

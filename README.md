@@ -67,6 +67,15 @@ Without IDA, as a generator of a C header for the same types:
 python3 btf2c.py /sys/kernel/btf/vmlinux vmlinux_types.h
 ```
 
+Headless, with idalib (IDA 9.0 or newer; set up the `idapro` module as Hex-Rays describes):
+
+```
+python3 tools/btf2ida_headless.py vmlinux
+python3 tools/btf2ida_headless.py nf_tables.ko --vmlinux vmlinux
+```
+
+It opens the file as a database, runs the same import as the menu action, prints the same summary and saves the database. A module's split BTF needs `--vmlinux` (the menu action asks for it instead). It calls the plugin's own code; like the rest of the IDA layer it has only been run against fake modules (`tests/test_plugin_stub.py`), not a real idalib.
+
 ## A real kernel module
 
 *Measured outside IDA, with fake IDA modules standing in for IDA. Not yet run in IDA.*
