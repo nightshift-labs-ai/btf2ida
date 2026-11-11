@@ -294,10 +294,13 @@ def module_release(blob):
 BANNER = re.compile(rb"Linux version (\d[^\s\x00]*) \(")
 
 
-def kernel_release(blob):
-    """The release in a kernel image's 'Linux version <release> (' banner, or None (raw BTF has none)."""
-    found = BANNER.search(blob)
-    return found.group(1).decode("ascii", "replace") if found else None
+def kernel_releases(blob):
+    """Every release named by a 'Linux version <release> (' banner (empty for raw BTF).
+
+    A vmlinux has one. A memory image can also hold copies in logs (dmesg, journald), possibly from an earlier boot,
+    and in no fixed order, so the caller checks membership instead of trusting the first match.
+    """
+    return {found.group(1).decode("ascii", "replace") for found in BANNER.finditer(blob)}
 
 
 def load_base(blob, path):

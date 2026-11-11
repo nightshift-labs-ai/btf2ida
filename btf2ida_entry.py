@@ -138,10 +138,10 @@ def vmlinux_for_module(vmlinux, ask):
         blob = handle.read()
     data = B.load_base(blob, path)
     # Nothing in the BTF ties it to the module (no split BTF to check), so compare the kernel releases.
-    built_for, found = input_module_release(), B.kernel_release(blob)
-    if built_for and found and built_for != found:
+    built_for, found = input_module_release(), B.kernel_releases(blob)
+    if built_for and found and built_for not in found:
         raise B.BTFError("this kernel module was built for %s, but the chosen vmlinux is %s: choose the vmlinux "
-                         "of the same build (its prototypes may differ)." % (built_for, found))
+                         "of the same build (its prototypes may differ)." % (built_for, " / ".join(sorted(found))))
     data.unchecked_release = built_for if built_for and not found else None
     return data
 

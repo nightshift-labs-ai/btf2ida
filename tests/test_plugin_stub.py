@@ -291,6 +291,11 @@ with tempfile.TemporaryDirectory() as folder:
             assert not refused and "Typed 1 imported" in message and "Not checked" not in message, message
         except B.BTFError as error:
             assert refused and "built for 6.1.0-x, but the chosen vmlinux is 6.17.0-41-generic" in str(error), error
+    # A memory image can also hold older banners in logs (journald, dmesg), in any order: one that matches is enough.
+    with open(bannered, "wb") as handle:
+        handle.write(raw_vmlinux + b"MESSAGE=Linux version 6.0.9-old (b@h) #1\0Linux version 6.1.0-x (builder@host) #1\0")
+    message = m.run_import(bannered, ask=False)
+    assert "Typed 1 imported" in message and "Not checked" not in message, message
     nalt.get_input_file_path = lambda: os.path.join(folder, "moved-away.ko")  # the input file is gone
     try:
         m.run_import(bannered, ask=False)
