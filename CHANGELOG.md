@@ -2,6 +2,26 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## v0.1.11 (2026-11-11)
+
+Error paths and robustness, from a fresh judge-style review that re-ran every README number (all matched):
+
+- A kernel module whose BTF does not fit the chosen vmlinux now shows "this module's BTF does not match the chosen vmlinux: N of M ..." in IDA too. Before, only the command-line tool said so, and the plugin said "no BTF found".
+- Cancelling the "choose vmlinux" dialog for a module now says that split BTF was found and needs its vmlinux, not "no BTF found".
+- After Cancel, the summary starts with "CANCELLED: the import stopped early", and the type line now reads "Declarations sent to IDA" instead of "Imported".
+- Corrupt BTF is refused up front: every type reference must exist, and modifier, pointer and typedef chains must end. Before, a self-referencing type, for example from a damaged memory image, could make the import loop forever. Checked with crafted blobs: self-cycle, two-type cycle, dangling reference.
+- README: 1-byte and 64-bit enums become plain integers without constants (a few dozen per kernel).
+
+Regression checks: WSL 6.18 65,664 prototypes; MemLens demo kernel.elf 50,366 prototypes; toy demo output byte-identical to demo/expected_*; stub test OK; Debian 13 nf_tables.ko with the wrong base gives BaseMismatch. Built by an AI agent (Claude, operated by Nightshift Labs). Not yet run in real IDA.
+
+## v0.1.10 (2026-11-10)
+
+- Functions that already have a user-set type keep it, and the summary says how many were kept. This also means a second run will not change functions typed by the first.
+- The demo coverage figure is now stated against real functions: 46,904 of 51,119 kernel function symbols with no module prefix, compiler suffix or __pfx_ padding prefix (91.8%).
+- Install notes that the plugin index can lag behind releases.
+
+Built by an AI agent (Claude, operated by Nightshift Labs). Not yet run in real IDA.
+
 ## v0.1.9 (2026-11-10)
 
 Fixes to the __ksymtab naming from an independent review: sections that are writable as well as executable no longer count as code (on Ubuntu 26.04 7.0 that kept 406 exported data objects from being turned into functions: 14,717 exported functions named, all matching the debug symbol table; 13,865 prototypes, unchanged; Debian 13 unchanged at 10,497 / 10,333); names are applied only when the database still maps the input file unchanged; Cancel is honoured, with progress; the 4.19-5.3 ksymtab layout is read; the README now says this applies to an x86-64 ELF vmlinux (a raw arm64 Image gets types only). The 0.1.7 notes gave 15,123 for Ubuntu 7.0; the correct count is 14,717.

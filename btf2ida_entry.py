@@ -73,7 +73,7 @@ def from_input(base):
             return None
         try:
             return B.load(blob, base=base)
-        except B.NeedsBase:
+        except (B.NeedsBase, B.BaseMismatch):
             raise
         except B.BTFError:
             return None
@@ -114,7 +114,7 @@ def find_btf():
             path = ida_kernwin.ask_file(False, None, FILE_PROMPT)
             ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
             if not path:
-                return None, ""
+                raise B.BTFError("this is split BTF (a kernel module): it needs the matching vmlinux, and none was chosen.")
             with open(path, "rb") as handle:
                 base = B.load(handle.read())
     return None, ""
@@ -190,11 +190,12 @@ def apply_prototypes(prototypes, progress=None):
     return result
 
 
-def report(source, generator, failed, result, named=0):
+def report(source, generator, failed, result, named=0, cancelled=False):
     stats = generator.stats
-    lines = [
+    lines = ["CANCELLED: the import stopped early, so only part of what is listed below reached the database."] if cancelled else []
+    lines += [
         "BTF from %s: %d types" % (source, generator.btf.count),
-        "Imported %d structs, %d unions, %d enums, %d typedefs (%d declarations rejected by IDA)" % (stats["structs"], stats["unions"], stats["enums"], stats["typedefs"], len(failed)),
+        "Declarations sent to IDA: %d structs, %d unions, %d enums, %d typedefs (%d rejected by IDA)" % (stats["structs"], stats["unions"], stats["enums"], stats["typedefs"], len(failed)),
         "Named %d exported functions from __ksymtab (the database had no name there)" % named,
         "Prototypes applied to %d functions; rejected by IDA %d; not in this database %d; name is not a function start %d" % (result["applied"], len(result["rejected"]), result["absent"], result["not_function"]),
         "Left untyped on purpose: %d compiler clones (.isra, .constprop, .part, .cold), their ABI may differ" % result["clones"],
@@ -225,7 +226,8 @@ def run_import():
 
     failed = import_in_batches(declarations, parse_batch, progress=types_progress)
     named = name_exports() if prototypes and not ida_kernwin.user_cancelled() else 0
-    return report(source, generator, failed, apply_prototypes(prototypes, proto_progress), named)
+    result = apply_prototypes(prototypes, proto_progress)
+    return report(source, generator, failed, result, named, cancelled=bool(ida_kernwin.user_cancelled()))
 
 
 

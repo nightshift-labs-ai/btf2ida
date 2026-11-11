@@ -11,6 +11,10 @@ class BTFError(ValueError):
     pass
 
 
+class BaseMismatch(BTFError):
+    """Split BTF whose string offsets do not fit the chosen vmlinux."""
+
+
 class NeedsBase(BTFError):
     """Split BTF (a kernel module): its ids and strings continue those of vmlinux."""
 
@@ -62,8 +66,36 @@ class BTF:
         # A module's split BTF names many strings of its base. With the wrong vmlinux those offsets land
         # in the middle of unrelated strings: refuse instead of producing garbage names.
         if base is not None and self._base_refs and self._base_misses > 0.02 * self._base_refs:
-            raise BTFError("this module's BTF does not match the chosen vmlinux: %d of %d base string references "
-                           "point into the middle of a string" % (self._base_misses, self._base_refs))
+            raise BaseMismatch("this module's BTF does not match the chosen vmlinux: %d of %d base string references "
+                               "point into the middle of a string" % (self._base_misses, self._base_refs))
+        self._validate()
+
+    def _validate(self):
+        """Every type reference must name an existing type, and chains of modifiers, pointers, typedefs and
+        function returns must end; corrupt BTF (for example carved from a damaged image) is refused here
+        instead of hanging later."""
+        n = self.next_id
+        chain = (PTR, TYPEDEF, VOLATILE, CONST, RESTRICT, TYPE_TAG, FUNC, FUNC_PROTO, VAR, DECL_TAG)
+        for t in self.own:
+            refs = [t.ref] if t.kind in chain else []
+            if t.kind == ARRAY:
+                refs = list(t.data[:2])
+            elif t.kind in (STRUCT, UNION):
+                refs = [m[1] for m in t.data]
+            elif t.kind == FUNC_PROTO:
+                refs += [p[1] for p in t.data]
+            elif t.kind == DATASEC:
+                refs = [v[0] for v in t.data]
+            for r in refs:
+                if r >= n:
+                    raise BTFError("corrupt BTF: type %d refers to type %d, but only %d types exist" % (t.id, r, n - 1))
+        for t in self.own:  # a chain longer than the number of types must contain a cycle
+            steps, cur = 0, t
+            while cur.kind in chain and cur.ref:
+                steps += 1
+                if steps > n:
+                    raise BTFError("corrupt BTF: type %d is part of a reference cycle" % t.id)
+                cur = self[cur.ref]
 
     def is_string_start(self, offset):
         if offset < self.str_start:
@@ -234,7 +266,7 @@ def load(blob, base=None):
     if blob[:2] in (b"\x9f\xeb", b"\xeb\x9f"):
         try:
             return BTF(blob, base=base)
-        except NeedsBase:
+        except (NeedsBase, BaseMismatch):
             raise
         except BTFError:
             pass
