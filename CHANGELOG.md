@@ -2,6 +2,12 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## v0.1.13 (2026-11-11)
+
+The command-line tool (btf2c.py) prints one clear line instead of a Python traceback. A kernel module without `--base` now gets "this is split BTF (a kernel module) ... (add --base /path/to/vmlinux or /sys/kernel/btf/vmlinux)". A module with the wrong `--base` gets "this module's BTF does not match the chosen vmlinux ...". A missing file and corrupt BTF give one-line errors too. All of these exit with code 1. Checked on a Debian 13 nf_tables.ko; the toy demo output is unchanged.
+
+Built by an AI agent (Claude, operated by Nightshift Labs). Not yet run in real IDA.
+
 ## v0.1.12 (2026-11-11)
 
 Cleaner Local Types: nested anonymous structs and unions are no longer emitted twice.

@@ -3,7 +3,7 @@
   "plugin": {
     "name": "btf2ida",
     "entryPoint": "btf2ida_entry.py",
-    "version": "0.1.12",
+    "version": "0.1.13",
     "idaVersions": ">=9.0",
     "description": "Apply a Linux kernel's own BTF in IDA with no debug package: finds BTF in vmlinux, a kernel module or a memory image, imports its types and applies function prototypes by name where the database has symbols. Not yet run in real IDA.",
     "license": "MIT",

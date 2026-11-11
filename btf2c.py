@@ -426,13 +426,19 @@ def main(argv=None):
     parser.add_argument("--prototypes", help="also write one prototype per line here")
     parser.add_argument("--asserts", help="also write a C file of _Static_assert layout checks")
     args = parser.parse_args(argv)
-    with open(args.input, "rb") as handle:
-        blob = handle.read()
-    base = None
-    if args.base:
-        with open(args.base, "rb") as handle:
-            base = B.load(handle.read())
-    generator = Generator(B.load(blob, base=base), args.pointer_size)
+    try:
+        with open(args.input, "rb") as handle:
+            blob = handle.read()
+        base = None
+        if args.base:
+            with open(args.base, "rb") as handle:
+                base = B.load(handle.read())
+        data = B.load(blob, base=base)
+    except B.NeedsBase as error:
+        sys.exit("btf2c: %s: %s (add --base /path/to/vmlinux or /sys/kernel/btf/vmlinux)" % (args.input, error))
+    except (B.BTFError, OSError) as error:
+        sys.exit("btf2c: %s" % error)
+    generator = Generator(data, args.pointer_size)
     text = header(generator)
     with open(args.output, "w", encoding="utf-8") as handle:
         handle.write(text)
