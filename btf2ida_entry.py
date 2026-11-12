@@ -689,9 +689,10 @@ def check_bitfield_layouts(generator, raw_generator, raw_tags=()):
     """After the import: compare IDA's layout of every struct/union with bitfields (generator.bitfield_layout) with
     what btf2c declared from the BTF: its size, each C bitfield's bit offset and width, no other named bitfield, and
     the offsets of its direct members. One that differs is re-declared from raw_generator() (a Generator with
-    bitfields=False: raw bytes, the names in a comment) and checked again. raw_tags: those IDA rejected with C
-    bitfields and took with raw bytes (retry_with_raw_bytes), so raw bytes are expected there. Returns the summary
-    line, or None when no struct has bitfields. Checked only against fake ida_typeinf modules: real IDA was not run."""
+    bitfields=False: raw bytes, the names in a comment) and checked again once all of them are. raw_tags: those IDA
+    rejected with C bitfields and took with raw bytes (retry_with_raw_bytes), so raw bytes are expected there. Returns
+    the summary line, or None when no struct has bitfields. Checked only against fake ida_typeinf modules: real IDA
+    was not run."""
     layouts = generator.bitfield_layout
     if not layouts:
         return None
@@ -726,12 +727,18 @@ def check_bitfield_layouts(generator, raw_generator, raw_tags=()):
     raw = raw_generator()
     if not raw.struct_text:
         raw.declarations()
-    replaced = 0
+    redeclared = []
     for tag, size, _ in differ:
         try:
             if tag in raw.struct_text and replace_type(tag, raw.struct_text[tag]):
-                found = ida_layout(tag)
-                replaced += found is not None and layout_difference(size, [], members.get(tag, (size, {}))[1], found) is None
+                redeclared.append((tag, size))
+        except Exception:  # noqa: BLE001  (counted as not replaced)
+            pass
+    replaced = 0
+    for tag, size in redeclared:  # only after all of them: a struct that holds another one by value has its new size by then
+        try:
+            found = ida_layout(tag)
+            replaced += found is not None and layout_difference(size, [], members.get(tag, (size, {}))[1], found) is None
         except Exception:  # noqa: BLE001  (counted as not replaced)
             pass
     line = "Bitfield layout in IDA does not match the BTF in %d of %d structs/unions with bitfields (first: %s: %s); " \

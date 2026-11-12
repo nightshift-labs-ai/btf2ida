@@ -585,7 +585,7 @@ class FakeTif:
         return self.kind is not None
 
     def get_size(self):
-        return ida_types[self.kind[1]][0]
+        return held(self.kind[1])[0]
 
     def is_anonymous_udt(self):
         return bool(self.kind) and self.kind[0] == "anon"
@@ -593,7 +593,7 @@ class FakeTif:
     def get_udt_details(self, udt):
         if not self.kind:
             return False
-        udt.extend(self.kind[1] if self.kind[0] == "anon" else ida_types[self.kind[1]][1])
+        udt.extend(self.kind[1] if self.kind[0] == "anon" else held(self.kind[1])[1])
         return True
 
     def set_named_type(self, til_, name, flags):
@@ -601,6 +601,11 @@ class FakeTif:
         if replace_ok[1]:
             ida_types[name] = self.parsed
         return ti.TERR_OK
+
+
+def held(tag):  # IDA's (size, [Udm]) of tag; a function for a struct whose layout follows a struct it holds by value
+    layout = ida_types[tag]
+    return layout() if callable(layout) else layout
 
 
 def bf(name, offset, size):
@@ -767,6 +772,25 @@ assert [c[1] for c in calls if c[0] == "parse"][-1] == retried, calls  # c_plain
 assert "(0 rejected by IDA)" in message and "in 2 structs/unions: IDA rejected their declaration with C bitfields (first: " \
     "b_inner)" in message and "Bitfield layout checked in IDA: 2 structs/unions with bitfields (0 with C bitfields)" in message, message
 m.find_btf, idc.parse_decls = real_load_btf, real_parse_decls
+# Each differing struct is checked again only after all of them were declared again with raw bytes: a_outer comes
+# first (sorted) and its layout follows b_inner's, which IDA got wrong, so a re-check right after a_outer's own
+# re-declaration would still see b_inner's wrong size ("could not be: please report it") though both end up right.
+egen = btf2c.Generator(B.BTF(emb.blob()))
+egen.declarations()
+inner_bits = lambda: held("b_inner")[0] * 8  # noqa: E731
+ida_types.clear()
+ida_types["b_inner"] = (7, [bf("p", 0, 3), bf("q", 3, 5), Udm("__pad_1", 8, 48)])  # size 7 in IDA, 4 in BTF
+ida_types["a_outer"] = lambda: (inner_bits() // 8 + 4, [Udm("inner", 0, inner_bits()), bf("r", inner_bits(), 1),
+                                                        bf("__pad_bits_4_1", inner_bits() + 1, 7), Udm("__pad_5", inner_bits() + 8, 24)])
+RAW_IN_IDA["a_outer"] = lambda: (inner_bits() // 8 + 4, [Udm("inner", 0, inner_bits()), Udm("__bits_4", inner_bits(), 8),
+                                                         Udm("__pad_5", inner_bits() + 8, 24)])
+del calls[:]
+line = m.check_bitfield_layouts(egen, lambda: emb_raw)
+assert line == "Bitfield layout in IDA does not match the BTF in 2 of 2 structs/unions with bitfields (first: a_outer: size 11 " \
+               "in IDA, 8 in BTF); 2 of them re-declared with raw bytes (names in a comment), and IDA then lays them out as the " \
+               "BTF does", line
+assert [c[1] for c in calls if c[0] == "set_named_type"] == ["a_outer", "b_inner"] and held("a_outer")[0] == 8, calls
+ida_types.clear()
 kw.user_cancelled = lambda: True  # cancelled: no check
 assert "Bitfield layout" not in m.run_import()
 kw.user_cancelled = lambda: False
