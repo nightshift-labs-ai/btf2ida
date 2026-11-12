@@ -138,6 +138,7 @@ prints, among the summary lines:
 ```
 Prototypes applied to 488 functions; rejected by IDA 0; not in this database 7; name is not a function start 0
 Typed 151 imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA 0
+The module's 193 undefined symbols: 193 found in this database, 0 of them outside an extern segment (left alone: only imports in an extern segment are typed)
 Not applied: 3 'void f(void)' prototypes of assembly functions such as memcpy (BTF has no real prototype for them; IDA's own type is kept)
 ```
 

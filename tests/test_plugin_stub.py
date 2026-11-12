@@ -294,7 +294,8 @@ with tempfile.TemporaryDirectory() as folder:
     # A kernel module with no BTF of its own: only its imports are typed, from the chosen vmlinux.
     nobtf = os.path.join(folder, "nobtf.ko")
     with open(nobtf, "wb") as handle:
-        handle.write(tiny_rel([b".gnu.linkonce.this_module"]))
+        handle.write(tiny_rel([b".gnu.linkonce.this_module", (b".symtab", bytes(24) + struct.pack("<IBBHQQ", 1, 0x10, 0, 0, 0, 0)),
+                               (b".strtab", b"\0imp_fn\0")]))
     assert not B.is_kernel_module(tiny_rel([b".text"]) + b".gnu.linkonce.this_module\x00"), "the string alone is not a module"
     assert not B.is_kernel_module(tiny_rel([b".gnu.linkonce.this_module"])[:70]), "truncated"
     nalt.get_input_file_path = lambda: nobtf
@@ -303,6 +304,7 @@ with tempfile.TemporaryDirectory() as folder:
     del calls[:]
     message = m.run_import()
     assert "no BTF of its own" in message and "Typed 1 imported kernel functions" in message, message
+    assert "The module's 1 undefined symbols: 1 found in this database, 0 of them outside" in message, message
     assert [c for c in calls if c[0] == "settype"] == [("settype", 0x8000, "int __btf2ida_fn(int x);")], calls
     ida.inf_is_64bit = lambda: False  # 32-bit: the summary must not claim the imports were typed
     message32 = m.run_import()
@@ -529,4 +531,45 @@ assert protos == {"code_user": "int code_user(code code_, int task, bool on)", "
 assert m.unnamed(protos["task"], "task") == "int __btf2ida_fn(code code_, int task, bool on)"
 assert "#include <stdbool.h>" in btf2c.header(cgen)
 print("stub test OK: fixed declarator name for SetType, rejected prototypes named, typedef-named parameters renamed, _Bool as bool")
+# Undefined symbols of the input module vs the database: explains an import count of 0.
+def tiny_elf32_be(sections):
+    """ELF32 big-endian relocatable file with the given (name, content) sections and a .shstrtab."""
+    names = b"\0" + b"".join(n + b"\0" for n, _ in sections) + b".shstrtab\0"
+    payload = names + b"".join(content for _, content in sections)
+    shoff = (52 + len(payload) + 3) & ~3
+    headers, at, offset = [bytes(40)], 1, 52 + len(names)
+    for n, content in sections:
+        headers.append(struct.pack(">IIIIIIIIII", at, 1, 0, 0, offset, len(content), 0, 0, 1, 0))
+        at, offset = at + len(n) + 1, offset + len(content)
+    headers.append(struct.pack(">IIIIIIIIII", at, 3, 0, 0, 52, len(names), 0, 0, 1, 0))
+    ehdr = b"\x7fELF\x01\x02\x01" + bytes(9) + struct.pack(">HHIIIIIHHHHHH", 1, 8, 1, 0, 0, shoff, 0, 52, 0, 0, 40, len(headers), len(headers) - 1)
+    return ehdr + payload + bytes(shoff - 52 - len(payload)) + b"".join(headers)
+
+
+strtab = b"\0imp_a\0imp_b\0own\0"
+sym64 = bytes(24) + struct.pack("<IBBHQQ", 1, 0x10, 0, 0, 0, 0) + struct.pack("<IBBHQQ", 7, 0x10, 0, 0, 0, 0) + struct.pack("<IBBHQQ", 13, 0x12, 0, 1, 0, 8)
+sym32 = bytes(16) + struct.pack(">IIIBBH", 1, 0, 0, 0x10, 0, 0) + struct.pack(">IIIBBH", 7, 0, 0, 0x10, 0, 0) + struct.pack(">IIIBBH", 13, 0, 8, 0x12, 0, 1)
+assert B.undefined_symbols(tiny_rel([(b".symtab", sym64), (b".strtab", strtab)])) == {"imp_a", "imp_b"}
+assert B.undefined_symbols(tiny_elf32_be([(b".symtab", sym32), (b".strtab", strtab)])) == {"imp_a", "imp_b"}
+assert B.undefined_symbols(tiny_rel([b".text"])) == set() and B.undefined_symbols(b"junk") == set()
+modfile = os.path.join(tempfile.mkdtemp(), "m.ko")
+with open(modfile, "wb") as handle:
+    handle.write(tiny_rel([(b".symtab", sym64), (b".strtab", strtab)]))
+nalt.get_input_file_path = lambda: modfile
+idc.get_name_ea_simple = lambda n: {"imp_a": 0x8000, "imp_b": 0x3000, "own": 0x3100}.get(n, idc.BADADDR)
+m.ida_segment = seg
+seg.segtype = lambda ea: seg.SEG_XTRN if ea == 0x8000 else seg.SEG_CODE
+assert m.undefined_in_database() == (2, 2, 1), m.undefined_in_database()
+seg.segtype = lambda ea: seg.SEG_CODE                                  # IDA put no import in an extern segment
+assert m.undefined_in_database() == (2, 2, 2)
+modgen = types.SimpleNamespace(stats=gen.stats, btf=types.SimpleNamespace(count=1, base=object(), distilled=False, unchecked_release=None))
+text = m.report("x", modgen, [], dict(m.apply_prototypes([]), undefined=(2, 2, 2)))
+assert "The module's 2 undefined symbols: 2 found in this database, 2 of them outside an extern segment" in text, text
+assert "IDA put none of the module's imports in an extern segment" in text, text
+text = m.report("x", modgen, [], dict(m.apply_prototypes([]), undefined=(2, 2, 1)))
+assert "1 of them outside" in text and "IDA put none" not in text, text
+assert "undefined symbols" not in m.report("x", modgen, [], dict(m.apply_prototypes([]), undefined=(0, 0, 0)))  # no symtab
+nalt.get_input_file_path = lambda: os.path.join(tempfile.mkdtemp(), "gone.ko")
+assert m.undefined_in_database() is None
+print("stub test OK: undefined symbols of the module counted (ELF64 LE, ELF32 BE), 'outside an extern segment' explained")
 print("stub test OK (fake IDA modules)")

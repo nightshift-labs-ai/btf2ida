@@ -295,6 +295,28 @@ def module_release(blob):
     return None
 
 
+def undefined_symbols(blob):
+    """Names of the undefined symbols in an ELF file's .symtab (for a kernel module: what it takes from the kernel and
+    other modules), ELF32 or ELF64, either byte order. Empty if there is no symbol table."""
+    try:
+        table, names = elf_section(blob, b".symtab"), elf_section(blob, b".strtab")
+    except (struct.error, IndexError, ValueError):
+        return set()
+    if not table or not names:
+        return set()
+    end = "<" if blob[5] == 1 else ">"
+    wide = blob[4] == 2
+    size, layout = (24, end + "IBBHQQ") if wide else (16, end + "IIIBBH")
+    out = set()
+    for at in range(size, len(table) - size + 1, size):  # entry 0 is the null symbol
+        fields = struct.unpack_from(layout, table, at)
+        name, shndx = fields[0], fields[3] if wide else fields[5]
+        if shndx == 0 and name:
+            stop = names.find(b"\0", name)
+            out.add(names[name:stop if stop != -1 else len(names)].decode("utf-8", "replace"))
+    return out
+
+
 BANNER = re.compile(rb"Linux version (\d[^\s\x00]*) \(")
 
 

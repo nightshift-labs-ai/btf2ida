@@ -362,6 +362,24 @@ def set_prototype(address, name, declaration, result, is_import=False, own=None)
         result["imports_rejected" if is_import else "rejected"].append(name)
 
 
+def undefined_in_database():
+    """(undefined symbols of the input module, how many of these names IDA has, how many of those sit outside an
+    extern segment), or None when the input file cannot be read. Explains an import count of 0."""
+    path = ida_nalt.get_input_file_path()
+    try:
+        with open(path, "rb") as handle:
+            names = B.undefined_symbols(handle.read())
+    except (OSError, TypeError):
+        return None
+    found = outside = 0
+    for name in names:
+        address = idc.get_name_ea_simple(name)
+        if address != idc.BADADDR:
+            found += 1
+            outside += not in_extern_segment(address)
+    return len(names), found, outside
+
+
 def apply_prototypes(prototypes, progress=None, imported=()):
     """Type every function found by exact name; compiler-rewritten clones are left alone.
 
@@ -430,6 +448,13 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
                      "(raw BTF?), so make sure it comes from that same build." % generator.btf.unchecked_release)
     if (generator.btf.base is not None or no_own_btf) and not no_prototypes_32 and not distilled:  # a module: the counts above are its own functions
         lines.append("Typed %d imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA %d" % (result["imports"], len(result["imports_rejected"])))
+        if result.get("undefined") and result["undefined"][0]:
+            total, found, outside = result["undefined"]
+            lines.append("The module's %d undefined symbols: %d found in this database, %d of them outside an extern segment "
+                         "(left alone: only imports in an extern segment are typed)" % (total, found, outside))
+            if total and found and found == outside:
+                lines.append("IDA put none of the module's imports in an extern segment, so none could be typed. Please "
+                             "report your IDA version at %s." % ISSUES_URL)
     lines += [
         "Left untyped on purpose: %d compiler clones (.isra, .constprop, .part, .cold), their ABI may differ" % result["clones"],
         "Kept as they were: %d functions that already had a user-set type" % result["kept"],
@@ -486,6 +511,8 @@ def run_import(vmlinux=None, ask=True):
     failed = import_in_batches(declarations, parse_batch, progress=types_progress)
     named = name_exports() if prototypes and not ida_kernwin.user_cancelled() else 0
     result = apply_prototypes(prototypes, proto_progress, imported)
+    if data.base is not None or source == SOURCE_NO_OWN_BTF:
+        result["undefined"] = undefined_in_database()
     return report(source, generator, failed, result, named, cancelled=bool(ida_kernwin.user_cancelled()),
                   no_prototypes_32=regparm, no_own_btf=source == SOURCE_NO_OWN_BTF)
 
