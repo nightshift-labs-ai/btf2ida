@@ -2,6 +2,10 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## Unreleased
+
+- Prototypes: BTF records assembly functions (memcpy, memset, memmove, `__get_user_N`, `__put_user_N`, ...) as `void f(void)`, the same record as a real `void f(void)`; applying it wiped the arguments at every call (in a Debian 13 `nf_tables.ko`, the imports memcpy, memmove and memset). btf2ida now leaves such a prototype out for a list of known x86 assembly entry points and wherever IDA's current type already lists parameters, and says how many in a new summary line. `nf_tables.ko` example: 151 imports typed (was 154) + "Not applied: 3". Stub test; tested only on fake IDA modules.
+
 ## v0.1.20 (2026-11-13)
 
 - `tests/check_ida_api.py` prints a usage line and exits 2 when run without the IDAPython source folder; the other check scripts already printed one.

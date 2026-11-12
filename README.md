@@ -97,13 +97,13 @@ Debian 13 `nf_tables.ko` (6.12.115+deb13.1-cloud-amd64), with that kernel's vmli
 | Fake database | v0.1.14 | v0.1.15 |
 |---|---|---|
 | No names (every lookup fails) | not in this database: 48,395 | not in this database: 495 (the module's own functions) |
-| Names from the module's symbol table: its 193 undefined symbols in an extern segment, its 1,042 text symbols as functions | 489 functions typed, 0 imports; not in this database: 47,752 | 488 module functions and 154 imports typed (for example `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`); not in this database: 7 |
+| Names from the module's symbol table: its 193 undefined symbols in an extern segment, its 1,042 text symbols as functions | 489 functions typed, 0 imports; not in this database: 47,752 | 488 module functions and 151 imports typed (for example `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`); not in this database: 7 |
 
 - The 7 have BTF but no symbol in the module.
 - The other 39 imports have no function BTF in vmlinux. Examples: data (`jiffies`), thunks (`__x86_indirect_thunk_rax`), functions of another module (`nfnetlink_*`), and `memcmp`.
 - One function typed before is now left alone: the module's own `jhash`, whose BTF is only in vmlinux's part. A vmlinux name outside the extern segment is not trusted to be the same function.
 
-**A module with no BTF of its own.** Distribution out-of-tree modules are often built without BTF, because their build has no vmlinux (for example Ubuntu's `usbio.ko` and `intel_cvs.ko` have no `.BTF` section). For such a module (an ELF relocatable file with a `.gnu.linkonce.this_module` section and no BTF), btf2ida asks for the matching vmlinux (headless: `--vmlinux`) and types only the kernel functions the module calls, in its extern segment, from the vmlinux BTF. The module's own functions get no prototype, and the summary says so. With no split BTF to check against, it compares the module's `vermagic` release with the vmlinux's `Linux version` banner (in a memory image, any of its banners) and refuses a different kernel (for example Ubuntu's 6.17 `intel_cvs.ko` with the Debian 6.12 vmlinux: "this kernel module was built for 6.17.0-41-generic, but the chosen vmlinux is 6.12.115+deb13.1-cloud-amd64"); a raw BTF file has no banner, and then the summary says the match was not checked. Measured with the same fake database as above on Debian 13 `nf_tables.ko` with its `.BTF` section removed (`objcopy --remove-section .BTF`): 154 imports typed, the same 154 as with its BTF (`nla_put` identical), 0 own functions typed. This path has only been run against fake IDA modules.
+**A module with no BTF of its own.** Distribution out-of-tree modules are often built without BTF, because their build has no vmlinux (for example Ubuntu's `usbio.ko` and `intel_cvs.ko` have no `.BTF` section). For such a module (an ELF relocatable file with a `.gnu.linkonce.this_module` section and no BTF), btf2ida asks for the matching vmlinux (headless: `--vmlinux`) and types only the kernel functions the module calls, in its extern segment, from the vmlinux BTF. The module's own functions get no prototype, and the summary says so. With no split BTF to check against, it compares the module's `vermagic` release with the vmlinux's `Linux version` banner (in a memory image, any of its banners) and refuses a different kernel (for example Ubuntu's 6.17 `intel_cvs.ko` with the Debian 6.12 vmlinux: "this kernel module was built for 6.17.0-41-generic, but the chosen vmlinux is 6.12.115+deb13.1-cloud-amd64"); a raw BTF file has no banner, and then the summary says the match was not checked. Measured with the same fake database as above on Debian 13 `nf_tables.ko` with its `.BTF` section removed (`objcopy --remove-section .BTF`): 151 imports typed, the same 151 as with its BTF (`nla_put` identical), 0 own functions typed. This path has only been run against fake IDA modules.
 
 Not checked in IDA:
 
@@ -134,10 +134,11 @@ prints, among the summary lines:
 
 ```
 Prototypes applied to 488 functions; rejected by IDA 0; not in this database 7; name is not a function start 0
-Typed 154 imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA 0
+Typed 151 imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA 0
+Not applied: 3 'void f(void)' prototypes of assembly functions such as memcpy (BTF has no real prototype for them; IDA's own type is kept)
 ```
 
-For the no-BTF case: `objcopy --remove-section .BTF nf_tables.ko nf_tables_nobtf.ko`, then the same command on `nf_tables_nobtf.ko` gives "Prototypes applied to 0 functions", the line "This kernel module has no BTF of its own ..." and the same 154 imports.
+For the no-BTF case: `objcopy --remove-section .BTF nf_tables.ko nf_tables_nobtf.ko`, then the same command on `nf_tables_nobtf.ko` gives "Prototypes applied to 0 functions", the line "This kernel module has no BTF of its own ..." and the same 151 imports.
 
 ## Verification
 
