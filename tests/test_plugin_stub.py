@@ -404,4 +404,18 @@ assert len(warns) == 1 and "unexpected error" in warns[0] and "/btf2ida/issues" 
 assert any(c[0] == "msg" and "IndexError: synthetic" in c[1] for c in calls), calls
 plugin.term()
 assert ("unreg", "btf2ida:apply") in calls
+# "void f(void)" from BTF: skipped for assembly entry points (memcpy) and where IDA's type already has parameters;
+# a genuine void f(void) with no better type is still applied
+addrs = {"memcpy": 0x7100, "irq_enter_rcu": 0x7200, "has_args": 0x7300, "with_args": 0x7400}
+idc.get_name_ea_simple = lambda n: addrs.get(n, idc.BADADDR)
+sys.modules["ida_funcs"].get_func = lambda ea: types.SimpleNamespace(start_ea=ea) if ea in addrs.values() else None
+idc.get_type = lambda ea: {0x7300: "void __fastcall(void *a1, int a2)", 0x7200: "void __fastcall()"}.get(ea)
+nalt.is_userti = lambda ea: False
+del calls[:]
+idc.SetType = lambda ea, d: calls.append(("settype", ea, d)) or True
+res = m.apply_prototypes([("memcpy", "void memcpy(void)"), ("irq_enter_rcu", "void irq_enter_rcu(void)"),
+                          ("has_args", "void has_args(void)"), ("with_args", "int with_args(int x)")])
+typed = sorted(c[1] for c in calls if c[0] == "settype")
+assert typed == [0x7200, 0x7400] and res["void_skipped"] == 2 and res["applied"] == 2, (typed, res)
+print("stub test OK: void(void) prototypes skipped for memcpy and where IDA's type has parameters (2), applied elsewhere")
 print("stub test OK (fake IDA modules)")

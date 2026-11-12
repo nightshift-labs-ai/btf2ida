@@ -5,6 +5,7 @@ file or the loaded segments (vmlinux, a kernel module, a raw kernel, a memory im
 struct, union, enum and typedef, then applies a prototype to each function whose name matches
 (for a kernel module: its own functions, plus the kernel functions it imports, in the extern segment).
 """
+import re
 import traceback
 import mmap
 import struct
@@ -242,9 +243,38 @@ def in_extern_segment(address):
         return False
 
 
+# BTF records assembly functions as "void f(void)" (pahole has no C prototype for them), the same record as a real
+# void f(void). Applying it to memcpy & co. would wipe the arguments at every call, so btf2ida skips such a prototype
+# for these known x86/arm64 assembly entry points and wherever IDA's current type already has parameters.
+ASM_VOID = frozenset("""memcpy memmove memset __memcpy __memmove __memset memcpy_orig memset_orig
+    __get_user_1 __get_user_2 __get_user_4 __get_user_8 __get_user_nocheck_1 __get_user_nocheck_2
+    __get_user_nocheck_4 __get_user_nocheck_8 __put_user_1 __put_user_2 __put_user_4 __put_user_8
+    __put_user_nocheck_1 __put_user_nocheck_2 __put_user_nocheck_4 __put_user_nocheck_8 clear_page_erms
+    clear_page_orig clear_page_rep copy_page copy_page_regs copy_mc_enhanced_fast_string copy_mc_fragile
+    copy_to_nontemporal csum_partial_copy_generic rep_movs_alternative rep_stos_alternative""".split())
+VOID_VOID = re.compile(r"^void\s+[A-Za-z_][A-Za-z_0-9]*\(void\)$")
+
+
+def void_void_unsafe(address, name, declaration):
+    """True when declaration is "void name(void)" and must not be applied: a known assembly entry point, or IDA's
+    current type at address already lists parameters."""
+    if not VOID_VOID.match(declaration.strip()):
+        return False
+    if name in ASM_VOID:
+        return True
+    try:
+        current = idc.get_type(address) or ""
+    except Exception:  # noqa: BLE001  (no type information: apply as before)
+        return False
+    inside = current[current.find("(") + 1:current.rfind(")")] if "(" in current else ""
+    return bool(inside.strip()) and inside.strip() != "void"
+
+
 def set_prototype(address, name, declaration, result, is_import=False):
     if ida_nalt.is_userti(address):  # typed by hand or by an earlier run: never overwrite it
         result["kept"] += 1
+    elif void_void_unsafe(address, name, declaration):
+        result["void_skipped"] += 1
     elif idc.SetType(address, declaration + ";"):
         result["imports" if is_import else "applied"] += 1
     else:
@@ -258,7 +288,7 @@ def apply_prototypes(prototypes, progress=None, imported=()):
     applied only to names in an extern segment (the kernel functions the module calls). vmlinux
     functions the module does not use are not "missing", so they are not counted.
     """
-    result = {"applied": 0, "rejected": [], "absent": 0, "not_function": 0, "clones": 0, "kept": 0, "imports": 0, "imports_rejected": []}
+    result = {"applied": 0, "rejected": [], "absent": 0, "not_function": 0, "clones": 0, "kept": 0, "imports": 0, "imports_rejected": [], "void_skipped": 0}
     wanted = dict(imported)
     wanted.update(prototypes)
     jobs = [(name, declaration, False) for name, declaration in prototypes]
@@ -321,6 +351,9 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
         "Left untyped on purpose: %d compiler clones (.isra, .constprop, .part, .cold), their ABI may differ" % result["clones"],
         "Kept as they were: %d functions that already had a user-set type" % result["kept"],
     ]
+    if result.get("void_skipped"):
+        lines.append("Not applied: %d 'void f(void)' prototypes of assembly functions such as memcpy (BTF has no real "
+                     "prototype for them; IDA's own type is kept)" % result["void_skipped"])
     if failed:
         lines.append("First rejected declaration: %s" % failed[0][:200])
     return "\n".join(lines)
