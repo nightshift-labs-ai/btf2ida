@@ -69,7 +69,7 @@ Or copy this folder into your IDA `plugins` directory. IDA 9.0 or later. The plu
 
 Open a kernel or kernel module in IDA, then **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**. A summary says how many types IDA accepted and how many prototypes were applied.
 
-**Edit > Plugins > BTF2IDA: Apply kernel types and prototypes (bitfields as raw bytes)** runs the same import but keeps every bitfield as raw storage bytes with its name in a comment, the form before C bitfields, for a database where IDA lays out the C bitfields differently from the BTF. A struct that still has C bitfields from an earlier import is then declared again with raw bytes (the bitfield layout check below).
+**Edit > Plugins > BTF2IDA: Apply kernel types and prototypes (bitfields as raw bytes)** runs the same import but keeps every bitfield as raw storage bytes with its name in a comment, the form before C bitfields, for a database where IDA lays out the C bitfields differently from the BTF. A struct that still has C bitfields from an earlier import is then declared again with raw bytes (see "Bitfields checked with gcc only" under Known limitations).
 
 Functions the compiler rewrote (`.isra`, `.constprop`, `.part`, `.cold`) are left untyped on purpose: their calling convention may differ from the source signature.
 
