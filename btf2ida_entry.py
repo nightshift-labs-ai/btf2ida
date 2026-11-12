@@ -552,8 +552,8 @@ def bool_name():
         return "_BOOL1"
 
 
-EXTERNAL_PROMPT = ("FILTER BTF|*\nThis kernel has no BTF: choose BTF of this exact kernel build (raw BTF, a vmlinux with "
-                   "BTF, or a BTFHub <release>.btf.tar.xz)")
+EXTERNAL_PROMPT = ("FILTER BTF|*\nNo BTF in this database. If it is a Linux kernel built without BTF, choose BTF of this "
+                   "exact build (raw BTF, a vmlinux with BTF, or a BTFHub <release>.btf.tar.xz); otherwise cancel")
 
 
 def named_release(path):
@@ -590,6 +590,8 @@ def external_btf(vmlinux, ask):
         raise B.BTFError("cannot read the chosen file %s (%s)" % (path, error.strerror or error))
     try:
         data = B.load(blob)
+        if data.base is not None or getattr(data, "distilled", False):  # a module's BTF (e.g. distilled .BTF.base)
+            raise B.NeedsBase("module BTF")
         data.external_releases = B.kernel_releases(blob) | named_release(path)
         return data, path
     except B.NeedsBase:

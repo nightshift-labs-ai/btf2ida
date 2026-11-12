@@ -373,13 +373,21 @@ with tempfile.TemporaryDirectory() as folder:
     assert "same kernel release as this kernel: 5.8.0-63-generic" in m.run_import(same, ask=False)
     assert m.named_release("/x/5.8.0-63-generic.btf.tar.xz") == {"5.8.0-63-generic"} and m.named_release("/x/vmlinux") == set()
     assert m.named_release("/x/vmlinux.btf") == set(), "not a release"
-    kw.ask_file = lambda save, default, prompt: paths["vmlinux.btf"] if "has no BTF" in prompt else None
+    kw.ask_file = lambda save, default, prompt: paths["vmlinux.btf"] if "built without BTF" in prompt else None
     assert "a separate file" in m.run_import(None, ask=True)             # interactive: btf2ida asks for the file
     try:
         m.run_import(nobtf, ask=False)
         raise AssertionError("a chosen file without BTF must fail")
     except B.BTFError as error:
         assert "has no usable BTF" in str(error), error
+    distilled_file = os.path.join(folder, "distilled.ko")              # a module's BTF is not a whole kernel's
+    with open(distilled_file, "wb") as handle:
+        handle.write(distilled_ko)
+    try:
+        m.run_import(distilled_file, ask=False)
+        raise AssertionError("a module's distilled BTF must not be used for a whole kernel")
+    except B.BTFError as error:
+        assert "split BTF, not the BTF of a whole kernel" in str(error), error
     try:
         m.run_import(os.path.join(folder, "no-such-file.btf"), ask=False)
         raise AssertionError("a missing BTF file must fail with a clear message")
