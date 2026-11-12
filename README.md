@@ -22,7 +22,7 @@ Smallest try, nothing to download: `demo/toy_kernel.elf` (17 KB) is a small prog
 
 1. Open `demo/toy_kernel.elf` in IDA (after `hcli plugin install`, it is in the plugin's folder: `$IDAUSR/plugins/btf2ida/demo/`).
 2. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**.
-3. `demo_open` should become `int demo_open(struct demo_device *dev, unsigned int flags)` (all five prototypes are in `demo/expected_prototypes.txt`), and Local Types should hold `struct demo_device` as in `demo/expected_types.h`: `ready`, `mode` and `refs` as `unsigned short` bitfields, `private` renamed `private_`, the flexible array as a comment.
+3. `demo_open` should become `int demo_open(struct demo_device *dev, unsigned int flags)` (all five prototypes are in `demo/expected_prototypes.txt`), and Local Types should hold `struct demo_device` as in `demo/expected_types.h`: `ready`, `mode` and `refs` as `unsigned short` bitfields (not yet observed in IDA, which may show them as `unsigned __int16`; see Known limitations), `private` renamed `private_`, the flexible array as a comment.
 
 A real kernel, ready with symbols and BTF: Download `memlens-demo-debian13.zip` (22 MB) from the [MemLens demo-data release](https://github.com/nightshift-labs-ai/memlens/releases/tag/demo-data), our companion plugin that exports a running kernel from a memory image.
 
