@@ -136,7 +136,14 @@ o.t("cut", 4, 7, 18, kflag=1, extra=struct.pack(                                
     "<" + "III" * 7,
     o.s("priv"), 1, 32 << 24 | 0, o.s("lltx"), 1, 1 << 24 | 32,                        # 5 bytes: int + char
     o.s("a"), 1, 20 << 24 | 64, o.s("b"), 1, 4 << 24 | 84, o.s("c"), 1, 32 << 24 | 88,   # 7 bytes: 3 raw + int
-    o.s("x"), 2, 8 << 24 | 128, o.s("y"), 2, 8 << 24 | 136))                           # 2 bytes: one short
+    o.s("x"), 2, 8 << 24 | 128, o.s("y"), 2, 8 << 24 | 136))                           # 2 bytes of u8: two chars
+o.t("short unsigned int", 1, 0, 2, struct.pack("<I", 16))                             # 5
+o.t("units", 4, 6, 8, kflag=1, extra=struct.pack(                                     # 6  the declared type's own units
+    "<" + "III" * 6,
+    o.s("p"), 5, 8 << 24 | 8, o.s("q"), 5, 8 << 24 | 16, o.s("r"), 5, 8 << 24 | 24, o.s("s"), 5, 8 << 24 | 32,  # u16, bytes 1-4
+    o.s("m"), 1, 8 << 24 | 48, o.s("n"), 1, 8 << 24 | 56))                             # u32 in bytes 6-7: no own unit
+o.t("order", 4, 4, 4, kflag=1, extra=struct.pack(                                     # 7  converting comes first
+    "<" + "III" * 4, o.s("f0"), 2, 1 << 24 | 0, o.s("f1"), 2, 1 << 24 | 1, o.s("f2"), 2, 1 << 24 | 2, o.s("g"), 1, 24 << 24 | 8))
 odata = B.BTF(o.blob())
 ogen = btf2c.Generator(odata)
 otext = btf2c.header(ogen)
@@ -159,10 +166,31 @@ assert """struct cut {
   unsigned char __bits_8[3]; /* a:20@0, b:4@20 */
   unsigned int c:32;
   unsigned char __pad_f[1];
-  unsigned short x:8;
-  unsigned short y:8;
+  unsigned char x:8;
+  unsigned char y:8;
 };""" in otext, otext
-assert (ogen.stats["bitfield_integers"], ogen.stats["bitfields"], ogen.stats["bitfield_raw_runs"], ogen.stats["bitfields_as_storage"]) == (6, 10, 2, 4), ogen.stats
+# Several cuts convert as many bitfields: an integer of the declared type's size at an offset aligned to it wins (u16
+# q and r share the aligned short at byte 2; p and s get chars), else the fewest integers (u32 m, n: one short).
+assert """struct units {
+  unsigned char __pad_0[1];
+  unsigned char p:8;
+  unsigned short q:8;
+  unsigned short r:8;
+  unsigned char s:8;
+  unsigned char __pad_5[1];
+  unsigned short m:8;
+  unsigned short n:8;
+};""" in otext, otext
+# Converting the most bitfields comes before their own unit: u8 flags + u32 g:24 stay one int (a char for the flags
+# would leave g's 3 bytes raw).
+assert """struct order {
+  unsigned int f0:1;
+  unsigned int f1:1;
+  unsigned int f2:1;
+  unsigned int __pad_bits_0_3:5;
+  unsigned int g:24;
+};""" in otext, otext
+assert (ogen.stats["bitfield_integers"], ogen.stats["bitfields"], ogen.stats["bitfield_raw_runs"], ogen.stats["bitfields_as_storage"]) == (12, 20, 2, 4), ogen.stats
 oraw = btf2c.header(btf2c.Generator(odata, bitfields=False))  # the earlier form: one raw run per group
 assert "__bits_0[5]; /* priv:32@0, lltx:1@32 */" in oraw and "__bits_8[7]; /* a:20@0, b:4@20, c:32@24 */" in oraw and "__bits_10[2]; /* x:8@0, y:8@8 */" in oraw, oraw
 big_endian = B.BTF(f.blob())
@@ -185,7 +213,7 @@ with tempfile.TemporaryDirectory() as folder:  # the gcc layout proof of tests/c
     run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"), path],
                          capture_output=True, text=True)
     assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
-    assert "fields checked: 9 (0 signed)" in run.stdout and "counts agree with the generator: yes" in run.stdout, run.stdout
+    assert "fields checked: 19 (0 signed)" in run.stdout and "counts agree with the generator: yes" in run.stdout, run.stdout
     plain = Build()  # no bitfield at all: nothing to check is not a failure
     plain.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))
     plain.t("plain", 4, 1, 4, struct.pack("<III", plain.s("x"), 1, 0))

@@ -320,21 +320,25 @@ class Generator:
 
         `fields` are (name, bit offset, width, BTF type) sorted by bit offset. Runs are cut at byte boundaries that no
         bitfield crosses; a run that is convertible() becomes one integer of C bitfields, any other stays raw bytes.
-        Of all the ways to cut, the one with the most bitfields as C bitfields wins, then the one with the fewest
-        runs (so a group that fits one integer stays one). net_device's priv_flags:32 + lltx:1 (5 bytes) becomes an
-        unsigned int and an unsigned char; a 20-bit field over 3 bytes still keeps its run raw."""
+        Of all the ways to cut, the one with the most bitfields as C bitfields wins, then the one that puts the most
+        bitfields in an integer of their declared type's size at an offset aligned to it (the kernel's own storage
+        unit: sk_buff's 28 __u8 flags from tstamp_type on, bytes 1-4, get four unsigned chars, not one unsigned int
+        at an odd offset), then the one with the fewest runs. net_device's
+        priv_flags:32 + lltx:1 (5 bytes) becomes an unsigned int and an unsigned char; a 20-bit field over 3 bytes
+        still keeps its run raw."""
         if not self.bitfields:
             return [(start, end, fields, False)]
         cuts = [at for at in range(start, end + 1) if not any(bit < at * 8 < bit + width for _, bit, width, _ in fields)]
-        best = {start: ((0, 0), [])}  # cut -> (score, runs up to it); score: (bitfields converted, -runs)
+        best = {start: ((0, 0, 0), [])}  # cut -> (score, runs up to it); score: (converted, in their own unit, -runs)
         for index, lo in enumerate(cuts):
             if lo not in best:
                 continue
-            (done, runs), plan = best[lo]
+            (done, own, runs), plan = best[lo]
             for hi in cuts[index + 1:]:
                 part = [f for f in fields if lo * 8 <= f[1] < hi * 8]
                 ok = self.convertible(part, lo, hi)
-                score = (done + (len(part) if ok else 0), runs - 1)
+                natural = sum(self.resolve(f[3]).size == hi - lo for f in part) if ok and lo % (hi - lo) == 0 else 0
+                score = (done + (len(part) if ok else 0), own + natural, runs - 1)
                 if hi not in best or score > best[hi][0]:
                     best[hi] = (score, plan + [(lo, hi, part, ok)])
         return best[end][1]
