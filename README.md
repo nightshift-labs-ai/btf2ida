@@ -125,7 +125,7 @@ sh extract-vmlinux deb/boot/vmlinuz-6.12.115+deb13.1-cloud-amd64 > vmlinux    # 
 file vmlinux                                                                   # must say ELF
 ```
 
-Without `unzstd`, extract-vmlinux still exits 0 and writes the bzImage unchanged; btf2ida then says "install zstd". A kernel packed with gzip, xz, lzma or bzip2 (Debian 11, for example) needs no extract-vmlinux: choose the `vmlinuz` itself and btf2ida unpacks it. An arm64 `Image.gz` (Ubuntu's arm64 `vmlinuz`) is unpacked too.
+Without `unzstd`, extract-vmlinux still exits 0 and writes the bzImage unchanged; btf2ida then says "install zstd". A kernel packed with gzip, xz, lzma or bzip2 (Debian 11, for example) needs no extract-vmlinux: choose the `vmlinuz` itself and btf2ida unpacks it. An arm64 `Image.gz` (Ubuntu's arm64 `vmlinuz`) is unpacked too, and so is an EFI zboot `vmlinuz` (`MZ` ... `zimg`; checked on synthetic files only).
 
 SHA-256 of the results: `nf_tables.ko` 670cb309625f77c0…, `vmlinux` f741142f44058b03…. If the Debian pool no longer has this version, the same package is kept on snapshot.debian.org; another Debian 13 cloud kernel works the same way, with other numbers.
 
@@ -165,7 +165,7 @@ All numbers from runs on real kernels; the scripts are in `tests/`.
 | `tests/check_ida_names.py` against the IDAPython stubs of IDA 9.1, 9.2, 9.3, 9.4 (PyPI `idapro` 0.0.5, 0.0.7, 0.0.9, 0.0.11) and 9.5 (`idapro` 0.0.12) | 49 `ida_*` / `idc` module-level names used, 0 missing in each |
 | A compressed kernel chosen as the vmlinux (`tests/check_module.py`) | Debian 11 `nf_tables.ko` (5.10.0-32, no BTF of its own) with its xz `vmlinuz`: 95 imports typed, the same output as with the extracted vmlinux. Debian 13 zstd `vmlinuz`: refused with "install zstd". Ubuntu 24.04 arm64 6.8 `vmlinuz` (gzip `Image`): unpacked, BTF and release banner found |
 | arm64: Debian 13 `nf_tables.ko` (6.12.115+deb13.1-cloud-arm64) with that package's `vmlinuz` (an uncompressed `Image`) as the vmlinux, `tests/check_module.py` | 487 module functions and 137 imports typed; "Not applied: 2" (`memmove` and `strchr`, assembly on arm64) |
-| `tests/test_unpack.py`: synthetic bzImages | gzip, xz, lzma and bzip2 payloads unpacked; zstd, lz4 and lzo refused with what to install; corrupt, truncated and unknown payloads refused |
+| `tests/test_unpack.py`: synthetic bzImages and EFI zboot images | gzip, xz, lzma and bzip2 payloads unpacked; zstd, lz4 and lzo refused with what to install; corrupt, truncated and unknown payloads refused |
 | `tests/test_plugin_stub.py` with fake `ida_*` modules | full flow passes |
 
 Not verified: behaviour inside real IDA, including how fast IDA ingests a full kernel's types and whether it rejects specific declarations (the plugin is written to split rejected batches and report them instead of failing; that relies on IDA ignoring a redeclaration when a batch is parsed again; the SDK documents it, since `parse_decls` "always uses the HTI_DCL bit", which means "don't complain about redeclarations" (`typeinf.hpp` in HexRaysSA/ida-sdk), but it has not been observed in IDA). The offline checks used x86-64 kernels, apart from the two arm64 rows.

@@ -57,6 +57,24 @@ for bad, words in ((bzimage(b"\xfd7zXZ\x00" + b"\x01" * 50), "could not be unpac
 assert B.unpack_kernel_image(gzip.compress(KERNEL), "Image.gz") == KERNEL      # whole-file gzip (arm64 Image.gz)
 assert B.unpack_kernel_image(KERNEL, "vmlinux") is KERNEL                       # anything else: unchanged
 assert B.unpack_kernel_image(b"\x1f\x8b" + b"junk" * 10, "x") == b"\x1f\x8b" + b"junk" * 10  # not really gzip
+def zboot(payload, name):
+    """A minimal EFI zboot image (zboot-header.S layout): MZ, zimg, payload offset/size, compression name."""
+    head = bytearray(0x80)
+    head[0:2], head[4:8] = b"MZ", b"zimg"
+    struct.pack_into("<II", head, 8, len(head), len(payload))
+    head[24:24 + len(name)] = name
+    return bytes(head) + payload + b"\x00" * 32
+
+
+for kind, name in (("gzip", b"gzip"), ("xz", b"xzkern"), ("lzma", b"lzma")):
+    assert B.zboot_payload(zboot(packers[kind](KERNEL), name))[0] == kind
+    assert B.unpack_kernel_image(zboot(packers[kind](KERNEL), name), "vmlinuz.efi") == KERNEL, kind
+try:
+    B.unpack_kernel_image(zboot(b"\x28\xb5\x2f\xfd" + bytes(50), b"zstd22"), "vmlinuz.efi")
+    raise SystemExit("zstd zboot was accepted")
+except B.BTFError as error:
+    assert "install zstd" in str(error), error
+assert B.zboot_payload(b"MZ" + bytes(200)) is None                               # a plain PE file (arm64 Image) is not zboot
 for kind, pack in packers.items():                                             # a truncated payload is refused
     packed = pack(KERNEL)
     try:
@@ -84,4 +102,4 @@ finally:
             sys.modules.pop(name, None)
         else:
             sys.modules[name] = module
-print("unpack test OK: gzip/xz/lzma/bzip2 bzImages unpacked; zstd/lz4/lzo refused with what to install; Image.gz unpacked")
+print("unpack test OK: gzip/xz/lzma/bzip2 bzImages and EFI zboot images unpacked; zstd/lz4/lzo refused with what to install; Image.gz unpacked")

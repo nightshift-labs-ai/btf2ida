@@ -367,10 +367,25 @@ def bzimage_payload(blob):
     return "unknown", payload
 
 
+# EFI zboot (arm64, riscv; drivers/firmware/efi/libstub/zboot-header.S): "MZ", "zimg" at 4, payload offset and size
+# at 8 and 12, the compression name at 24 (the kernel Makefile writes gzip, lzma, lzo, lz4, xzkern or zstd22).
+ZBOOT_KINDS = (("gzip", "gzip"), ("lzma", "lzma"), ("xz", "xz"), ("zstd", "zstd"), ("lz4", "lz4"), ("lzo", "lzo"))
+
+
+def zboot_payload(blob):
+    """(format, compressed kernel) of an EFI zboot image, or None if blob is not one."""
+    if len(blob) < 0x40 or blob[:2] != b"MZ" or blob[4:8] != b"zimg":
+        return None
+    offset, size = struct.unpack_from("<II", blob, 8)
+    name = bytes(blob[24:40]).split(b"\0")[0].decode("ascii", "replace")
+    kind = next((kind for prefix, kind in ZBOOT_KINDS if name.startswith(prefix)), "unknown")
+    return kind, blob[offset:offset + size]
+
+
 def unpack_kernel_image(blob, path):
     """The kernel inside a compressed kernel file chosen as the vmlinux, else blob itself.
 
-    An x86 bzImage packed with gzip, xz, lzma or bzip2 is unpacked here (Python's standard library); zstd, lz4 and lzo
+    An x86 bzImage or an EFI zboot image packed with gzip, xz, lzma or bzip2 is unpacked here (Python's standard library); zstd, lz4 and lzo
     are not, and the error says what to install. A whole-file gzip (an arm64 Image.gz, as Ubuntu ships its arm64
     vmlinuz) is unpacked too.
     """
@@ -381,10 +396,11 @@ def unpack_kernel_image(blob, path):
             return out if whole.eof else blob  # not a complete gzip stream: leave the file as it is
         except zlib.error:
             return blob
-    found = bzimage_payload(blob)
+    found = bzimage_payload(blob) or zboot_payload(blob)
     if found is None:
         return blob
     kind, payload = found
+    form = "bzImage" if blob[0x202:0x206] == b"HdrS" else "EFI zboot image"
     if kind in UNPACKED:
         try:
             decompressor = unpacker(kind)
@@ -393,21 +409,21 @@ def unpack_kernel_image(blob, path):
                 raise EOFError("the compressed kernel ends early (truncated file?)")
             return out
         except ImportError as error:
-            raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (bzImage, %s), and this Python has no "
+            raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (%s, %s), and this Python has no "
                            "%s module (%s): extract it with scripts/extract-vmlinux, or use a copy of "
-                           "/sys/kernel/btf/vmlinux from the same kernel" % (path, kind, kind, error))
+                           "/sys/kernel/btf/vmlinux from the same kernel" % (path, form, kind, kind, error))
         except Exception as error:  # noqa: BLE001  (zlib.error, lzma.LZMAError, OSError, EOFError, ValueError)
-            raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (bzImage, %s) that could not be "
+            raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (%s, %s) that could not be "
                            "unpacked (%s): extract it with scripts/extract-vmlinux, or use a copy of "
-                           "/sys/kernel/btf/vmlinux from the same kernel" % (path, kind, error))
+                           "/sys/kernel/btf/vmlinux from the same kernel" % (path, form, kind, error))
     if kind in UNPACK_TOOLS:
-        raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (bzImage) packed with %s, which btf2ida "
+        raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (%s) packed with %s, which btf2ida "
                        "cannot unpack: install %s and run scripts/extract-vmlinux on it again (without it, "
-                       "extract-vmlinux still exits 0 and writes the bzImage unchanged; `file vmlinux` must say ELF), "
-                       "or use a copy of /sys/kernel/btf/vmlinux from the same kernel" % (path, kind, UNPACK_TOOLS[kind]))
-    raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (bzImage) in a format btf2ida does not know: "
+                       "extract-vmlinux still exits 0 and writes the file unchanged; `file vmlinux` must say ELF), "
+                       "or use a copy of /sys/kernel/btf/vmlinux from the same kernel" % (path, form, kind, UNPACK_TOOLS[kind]))
+    raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (%s) in a format btf2ida does not know: "
                    "extract it with scripts/extract-vmlinux, or use a copy of /sys/kernel/btf/vmlinux from the same "
-                   "kernel" % path)
+                   "kernel" % (path, form))
 
 
 def load_base(blob, path):
