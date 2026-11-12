@@ -424,7 +424,7 @@ idc.SetType = lambda ea, d: calls.append(("settype", ea, d)) or True
 til = types.ModuleType("ida_typeinf")  # IDA's type libraries know the SYMBOL til_func(void *p) (one argument)
 til.NTF_SYMM, til.NTF_SYMU, til.NTF_TYPE, til.TINFO_GUESSED = 0, 8, 1, 0
 library = {"til_func"}
-til.get_named_type = lambda t, name, flags: (1, b"T:" + name.encode(), b"", "", "", 0, 0) if flags == til.NTF_SYMU and name in library else None
+til.get_named_type = lambda t, name, flags: (1, b"T:" + name.encode(), b"", "", "", 0, 0) if t == "idati" and flags == til.NTF_SYMU and name in library else None
 
 
 class FakeTinfo:
@@ -440,6 +440,7 @@ class FakeTinfo:
 
 
 til.tinfo_t = FakeTinfo
+til.get_idati = lambda: "idati"
 til.apply_tinfo = lambda ea, tif, flags: calls.append(("apply_tinfo", ea, tif.name, flags)) or True
 sys.modules["ida_typeinf"] = til
 addrs.update(til_func=0x7500, int_void=0x7900, imp_memcpy=0x8100)
@@ -524,9 +525,10 @@ nalt.del_tinfo = del_tinfo
 til = types.ModuleType("ida_typeinf")
 til.NTF_SYMM, til.NTF_SYMU, til.TINFO_GUESSED = 0, 8, 0
 library.add("memcpy")
-til.get_named_type = lambda t, name, flags: (1, b"T:" + name.encode(), b"", "", "", 0, 0) if flags == til.NTF_SYMU and name in library else None
+til.get_named_type = lambda t, name, flags: (1, b"T:" + name.encode(), b"", "", "", 0, 0) if t == "idati" and flags == til.NTF_SYMU and name in library else None
 til.apply_tinfo = lambda ea, tif, flags: calls.append(("apply_tinfo", ea, tif.name, flags)) or True
 til.tinfo_t = FakeTinfo
+til.get_idati = lambda: "idati"
 sys.modules["ida_typeinf"] = til
 del calls[:]
 res = m.apply_prototypes([("fn_a", "int fn_a(int x)"), ("fn_b", "int fn_b(int x)")])

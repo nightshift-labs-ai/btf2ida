@@ -300,9 +300,10 @@ def library_prototype(name):
     Prototypes are symbols in a type library (NTF_SYMU: by the plain C name), not type names."""
     try:
         import ida_typeinf
-        found = ida_typeinf.get_named_type(None, name, ida_typeinf.NTF_SYMU)
+        local = ida_typeinf.get_idati()  # the database's types, with the loaded type libraries as its bases
+        found = ida_typeinf.get_named_type(local, name, ida_typeinf.NTF_SYMU)
         tif = ida_typeinf.tinfo_t()
-        if found and tif.deserialize(None, found[1], found[2]) and tif.is_func():
+        if found and tif.deserialize(local, found[1], found[2]) and tif.is_func():
             return tif
     except Exception:  # noqa: BLE001  (no type library answer)
         pass
@@ -427,6 +428,8 @@ def undefined_in_database():
     """(undefined symbols of the input module, how many of these names IDA has, how many of those sit outside an
     extern segment), or None when the input file cannot be read. Explains an import count of 0."""
     path = ida_nalt.get_input_file_path()
+    if not path:
+        return None
     try:
         with open(path, "rb") as handle:
             names = B.undefined_symbols(handle.read())
