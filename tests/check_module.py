@@ -3,6 +3,7 @@
 
     python3 tests/check_module.py nf_tables.ko vmlinux
     python3 tests/check_module.py nf_tables.ko vmlinux --no-names
+    python3 tests/check_module.py intel_cvs.ko vmlinux --force   (no own BTF, vmlinux of another release: use it anyway)
 
 The fake database is built from the module's ELF symbol table, the way IDA lays out a module:
 every defined FUNC symbol is a function, every undefined symbol sits in an extern segment

@@ -84,7 +84,9 @@ def from_input(base):
             return B.load(blob, base=base)
         except (B.NeedsBase, B.BaseMismatch):
             raise
-        except B.BTFError:
+        except B.BTFError as error:
+            if base is not None:  # the module's split BTF on the chosen vmlinux: ids or strings beyond that base
+                raise B.BaseMismatch("this module's BTF does not match the chosen vmlinux (%s)" % error)
             return None
         finally:
             blob.close()
@@ -142,15 +144,15 @@ def vmlinux_for_module(vmlinux, ask, force=False):
     data = B.load_base(blob, path)
     # Nothing in the BTF ties it to the module (no split BTF to check), so compare the kernel releases.
     built_for, found = input_module_release(), B.kernel_releases(blob)
-    data.release_mismatch = None
     if built_for and found and built_for not in found:
         releases = " / ".join(sorted(found))
         if not force and ask:
             ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
-            answer = ida_kernwin.ask_yn(ida_kernwin.ASKBTN_NO,
-                                        "This kernel module was built for %s, but the chosen vmlinux is %s.\n"
-                                        "The kernel functions the module calls can have other prototypes in that "
-                                        "build.\n\nUse this vmlinux anyway?" % (built_for, releases))
+            question = ("This kernel module was built for %s, but the chosen vmlinux is %s.\n"
+                        "The kernel functions the module calls can have other prototypes in that build.\n\n"
+                        "Use this vmlinux anyway?" % (built_for, releases))
+            # ask_yn is printf-style (AS_PRINTF in kernwin.hpp) and the releases come from the files: escape '%'.
+            answer = ida_kernwin.ask_yn(ida_kernwin.ASKBTN_NO, question.replace("%", "%%"))
             ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
             force = answer == ida_kernwin.ASKBTN_YES
         if not force:

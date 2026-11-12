@@ -51,6 +51,7 @@ class BTF:
         head = Header(blob, offset)
         self.distilled = False  # True when the base is a module's own distilled .BTF.base, not vmlinux
         self.unchecked_release: "str | None" = None  # set by the plugin when a module's vmlinux could not be matched by release
+        self.release_mismatch = None  # (module release, vmlinux releases) when the user chose a vmlinux of another release
         self.endian = head.endian
         self.size_on_disk = head.total
         start = offset + head.hdr_len

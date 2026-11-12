@@ -4,6 +4,7 @@
 Checks our logic only: this is not a test in real IDA.
 """
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -331,8 +332,11 @@ with tempfile.TemporaryDirectory() as folder:
         with open(bannered, "wb") as handle:
             handle.write(raw_vmlinux + b"Linux version %s (builder@host) #1 SMP\0" % release.encode())
         try:
+            del calls[:]
             message = m.run_import(bannered, ask=False)
             assert not refused and "Typed 1 imported" in message and "Not checked" not in message, message
+            assert "Used anyway" not in message and not [c for c in calls if c[0] == "ask_yn"], (message, calls)
+            assert m.run_import(bannered, ask=False, force=True) == message, "--force with a matching release changed the output"
         except B.BTFError as error:
             assert refused and "built for 6.1.0-x, but the chosen vmlinux is 6.17.0-41-generic" in str(error), error
             assert "add --force to use this one anyway" in str(error), error  # headless (ask=False) names the way out
@@ -340,6 +344,10 @@ with tempfile.TemporaryDirectory() as folder:
     message = m.run_import(bannered, ask=False, force=True)
     assert "Typed 1 imported" in message and "Used anyway (your choice): the module was built for 6.1.0-x, but the " \
         "chosen vmlinux is 6.17.0-41-generic" in message, message
+    assert not [c for c in calls if c[0] == "ask_yn"], "headless (ask=False) must never open a dialog"
+    hide, show = kw.hide_wait_box, kw.show_wait_box
+    kw.hide_wait_box = lambda: calls.append(("hide",))
+    kw.show_wait_box = lambda text: calls.append(("show",))
     for answer, used in ((kw.ASKBTN_YES, True), (kw.ASKBTN_NO, False), (kw.ASKBTN_CANCEL, False)):
         del calls[:]
         kw.ask_yn = lambda deflt, text, answer=answer: calls.append(("ask_yn", deflt, text)) or answer
@@ -350,9 +358,41 @@ with tempfile.TemporaryDirectory() as folder:
             assert not used and "choose the vmlinux of the same build" in str(error) and "--force" not in str(error), error
         asked = [c for c in calls if c[0] == "ask_yn"]
         assert len(asked) == 1 and asked[0][1] == kw.ASKBTN_NO and "built for 6.1.0-x" in asked[0][2], asked
+        at = calls.index(asked[0])  # no modal dialog over a wait box: hidden right before, shown again right after
+        assert calls[at - 1] == ("hide",) and calls[at + 1] == ("show",), calls
+    kw.hide_wait_box, kw.show_wait_box = hide, show
+    # ask_yn is printf-style: a '%' from the files reaches it doubled, never as a format directive.
+    percent = os.path.join(folder, "vmlinux-percent")
+    with open(percent, "wb") as handle:
+        handle.write(raw_vmlinux + b"Linux version 6.17.0-41%s%n (builder@host) #1 SMP\0")
+    del calls[:]
+    try:
+        m.run_import(percent)
+    except B.BTFError:
+        pass
+    asked = [c for c in calls if c[0] == "ask_yn"]
+    assert len(asked) == 1 and "6.17.0-41%%s%%n" in asked[0][2] and not re.search(r"(?<!%)%(?!%)", asked[0][2].replace("%%", "")), asked
     del calls[:]
     message = m.run_import(paths["vmlinux.btf"])  # raw BTF, no banner: no question, the "Not checked" line as before
     assert not [c for c in calls if c[0] == "ask_yn"] and "Used anyway" not in message and "Not checked" in message, message
+    assert m.run_import(paths["vmlinux.btf"], force=True) == message, "--force changed the raw-BTF output"
+    # Split BTF on a chosen vmlinux whose strings or ids it overruns (a plain BTFError from the parser) is a base
+    # mismatch, not "no BTF in the input" (which used to fall through to the whole-kernel file dialog).
+    real_load = B.load
+    def overrun(blob, base=None):
+        if base is not None:
+            raise B.BTFError("string offset out of range")
+        return real_load(blob, base=base)
+    B.load = overrun
+    nalt.get_input_file_path = lambda: paths["vmlinux.btf"]
+    try:
+        m.from_input(B.BTF(base_b.blob()))
+        raise AssertionError("an overrunning base was accepted")
+    except B.BaseMismatch as error:
+        assert "does not match the chosen vmlinux (string offset out of range)" in str(error), error
+    finally:
+        B.load = real_load
+    nalt.get_input_file_path = lambda: nobtf
     kw.ask_yn = lambda deflt, text: calls.append(("ask_yn", deflt, text)) or kw.ASKBTN_NO
     # A memory image can also hold older banners in logs (journald, dmesg), in any order: one that matches is enough.
     with open(bannered, "wb") as handle:
