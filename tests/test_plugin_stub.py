@@ -121,7 +121,7 @@ assert """struct flags {
   unsigned long long addr:52;
   signed long long sign:12;
 };""" in ftext, ftext
-assert (fgen.stats["bitfield_groups"], fgen.stats["bitfields"], fgen.stats["bitfield_groups_raw"], fgen.stats["bitfields_as_storage"]) == (3, 7, 1, 1), fgen.stats
+assert (fgen.stats["bitfield_integers"], fgen.stats["bitfields"], fgen.stats["bitfield_raw_runs"], fgen.stats["bitfields_as_storage"]) == (3, 7, 1, 1), fgen.stats
 # Overlapping bitfields (not in real kernels) stay raw bytes, an unnamed bitfield is left to a filler, and a bitfield
 # that starts right where the previous group ends joins it (3 bytes + 1 byte = one 4-byte integer).
 o = Build()
@@ -132,6 +132,11 @@ o.t("odd", 4, 7, 8, kflag=1, extra=struct.pack(                                 
     o.s("a"), 1, 4 << 24 | 0, o.s("b"), 1, 4 << 24 | 2,                                # byte 0: b overlaps a
     o.s("c"), 1, 3 << 24 | 16, 0, 1, 2 << 24 | 19, o.s("d"), 1, 3 << 24 | 21,          # byte 2: c, an unnamed :2, d
     o.s("e"), 1, 20 << 24 | 32, o.s("f"), 2, 8 << 24 | 56))                            # bytes 4-6 and byte 7
+o.t("cut", 4, 7, 18, kflag=1, extra=struct.pack(                                      # 4  groups cut at byte boundaries
+    "<" + "III" * 7,
+    o.s("priv"), 1, 32 << 24 | 0, o.s("lltx"), 1, 1 << 24 | 32,                        # 5 bytes: int + char
+    o.s("a"), 1, 20 << 24 | 64, o.s("b"), 1, 4 << 24 | 84, o.s("c"), 1, 32 << 24 | 88,   # 7 bytes: 3 raw + int
+    o.s("x"), 2, 8 << 24 | 128, o.s("y"), 2, 8 << 24 | 136))                           # 2 bytes: one short
 odata = B.BTF(o.blob())
 ogen = btf2c.Generator(odata)
 otext = btf2c.header(ogen)
@@ -146,6 +151,20 @@ assert """struct odd {
   unsigned int __pad_bits_4_20:4;
   unsigned int f:8;
 };""" in otext, otext
+assert """struct cut {
+  unsigned int priv:32;
+  unsigned char lltx:1;
+  unsigned char __pad_bits_4_1:7;
+  unsigned char __pad_5[3];
+  unsigned char __bits_8[3]; /* a:20@0, b:4@20 */
+  unsigned int c:32;
+  unsigned char __pad_f[1];
+  unsigned short x:8;
+  unsigned short y:8;
+};""" in otext, otext
+assert (ogen.stats["bitfield_integers"], ogen.stats["bitfields"], ogen.stats["bitfield_raw_runs"], ogen.stats["bitfields_as_storage"]) == (6, 10, 2, 4), ogen.stats
+oraw = btf2c.header(btf2c.Generator(odata, bitfields=False))  # the earlier form: one raw run per group
+assert "__bits_0[5]; /* priv:32@0, lltx:1@32 */" in oraw and "__bits_8[7]; /* a:20@0, b:4@20, c:32@24 */" in oraw and "__bits_10[2]; /* x:8@0, y:8@8 */" in oraw, oraw
 big_endian = B.BTF(f.blob())
 big_endian.endian = ">"
 for fold in (btf2c.Generator(fdata, bitfields=False), btf2c.Generator(big_endian)):
@@ -166,7 +185,7 @@ with tempfile.TemporaryDirectory() as folder:  # the gcc layout proof of tests/c
     run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"), path],
                          capture_output=True, text=True)
     assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
-    assert "fields checked: 4 (0 signed)" in run.stdout and "counts agree with the generator: yes" in run.stdout, run.stdout
+    assert "fields checked: 9 (0 signed)" in run.stdout and "counts agree with the generator: yes" in run.stdout, run.stdout
     plain = Build()  # no bitfield at all: nothing to check is not a failure
     plain.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))
     plain.t("plain", 4, 1, 4, struct.pack("<III", plain.s("x"), 1, 0))
@@ -183,7 +202,7 @@ with open(os.path.join(toy, "toy_kernel.elf"), "rb") as handle:
 with open(os.path.join(toy, "expected_types.h"), encoding="utf-8") as handle:
     assert handle.read() == toy_text, "demo/expected_types.h is out of date"
 assert "  unsigned short ready:1;\n  unsigned short mode:3;\n  unsigned short refs:12;\n  unsigned char __pad_a[2];\n" in toy_text
-print("stub test OK: bitfield groups of 1/2/4/8 bytes as full C bitfields (signed kept), others raw; gcc layout check passes")
+print("stub test OK: bitfield groups cut into full C bitfield integers of 1/2/4/8 bytes (signed kept), other runs raw; gcc layout check passes")
 
 # tests/check_against_dwarf.py on a tiny BTF and a hand-written ISF: its exit status is the verdict (0 only when the
 # kernel releases match or one is unknown and nothing differs), so a mismatch cannot pass unnoticed.

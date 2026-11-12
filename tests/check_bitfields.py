@@ -4,12 +4,14 @@
     python3 tests/check_bitfields.py vmlinux
     python3 tests/check_bitfields.py nf_tables.ko --base vmlinux
 
-btf2c.py writes a group of bitfields that covers 1, 2, 4 or 8 bytes as C bitfields that fill an integer of
-that size exactly (other groups stay raw bytes). This script finds every bitfield in the emitted types
-itself, from the BTF (outer named types and the anonymous structs and unions written inline in them),
-and checks the header btf2c.py writes for that kernel:
+btf2c.py cuts each group of adjacent bitfields, at byte boundaries no bitfield crosses, into runs of 1, 2, 4 or
+8 bytes written as C bitfields that fill an integer of that size exactly (other runs stay raw bytes). This
+script finds every bitfield group in the emitted types itself, from the BTF (outer named types and the
+anonymous structs and unions written inline in them), asks the generator how it cuts each group
+(Generator.bitfield_runs: which bitfields it writes as C bitfields is its decision, not repeated here), and
+checks the header btf2c.py writes for that kernel:
 
-(a) for each group written as C bitfields: sizeof the outer type, and offsetof the next named member that
+(a) for each group with C bitfields: sizeof the outer type, and offsetof the next named member that
     is not a bitfield, as _Static_asserts with the BTF's numbers. They are compiled against the new header
     and against the raw-byte header (Generator(bitfields=False), the earlier form), so neither moved.
 (b) for each of its bitfields: a C program sets the field through the struct and compares the struct's bytes
@@ -22,7 +24,7 @@ and checks the header btf2c.py writes for that kernel:
 The program is compiled and run with gcc twice: with GCC's own bitfield rules, and with -mms-bitfields
 (GCC's implementation of the Microsoft rules). This checks gcc's layout of the header only: how IDA lays
 out the same declarations has not been checked. It also counts what is not converted (groups of other
-sizes, bitfields directly in a union) and compares every count with the generator's own statistics.
+runs, bitfields directly in a union) and compares every count with the generator's own statistics.
 Prints the counts; exit 0 when everything passes (also when nothing is written as C bitfields, for example for
 big-endian BTF: it then prints NOTHING TO CHECK), 1 otherwise, 2 on bad arguments or an input without usable BTF.
 """
@@ -73,8 +75,9 @@ class Walk:
 
     def __init__(self, gen):
         self.gen, self.btf = gen, gen.btf
-        self.groups = []  # ((outer kind, outer tag), C path of the scope, its byte offset, fields, next member or None)
-        self.raw_groups = 0
+        self.groups = []  # ((outer kind, outer tag), C path of the scope, its byte offset, C bitfields, next member or None)
+        self.integers = 0  # runs written as C bitfields (one integer each)
+        self.raw_runs = 0
         self.raw_fields = 0
         self.union_fields = 0
         self.dropped = 0
@@ -111,14 +114,18 @@ class Walk:
                     self.dropped += len(fields)
                     continue
                 cursor = end
-                # Which groups become C bitfields is the generator's decision, asked here rather than copied, so a
+                # Which bitfields become C bitfields is the generator's decision, asked here rather than copied, so a
                 # wrong decision (an overlap converted, say) reaches the gcc checks below instead of being repeated.
-                converted = gen.bitfield_lines(fields, start, end, "", "") is not None
-                if not converted:
-                    self.raw_groups += 1
-                    self.raw_fields += len(fields)
-                    continue
-                self.groups.append((outer, path, base, fields, self.next_member(t, items[index:], path, base)))
+                converted = []
+                for _, _, part, ok in gen.bitfield_runs(fields, start, end):
+                    if ok:
+                        self.integers += 1
+                        converted += part
+                    else:
+                        self.raw_runs += 1
+                        self.raw_fields += len(part)
+                if converted:
+                    self.groups.append((outer, path, base, converted, self.next_member(t, items[index:], path, base)))
                 continue
             index += 1
             size = gen.size_of(m_type)
@@ -280,12 +287,12 @@ def main(argv=None):
     with open(os.path.join(folder, "runtime.c"), "w", encoding="utf-8") as handle:
         handle.write(runtime)
     stats = gen.stats
-    print("%s: bitfield groups written as C bitfields %d (%d bitfields), kept as raw bytes %d (%d bitfields); "
+    print("%s: bitfields written as C bitfields %d (in %d integers, %d groups), kept as raw bytes %d (in %d runs); "
           "bitfields directly in a union (raw) %d; dropped (overlap) %d"
-          % (args.input, len(walk.groups), converted_fields, walk.raw_groups, walk.raw_fields, walk.union_fields, walk.dropped))
-    print("generator statistics: %s" % {k: stats[k] for k in ("bitfield_groups", "bitfields", "bitfield_groups_raw", "bitfields_as_storage", "dropped_members")})
-    ok = (len(walk.groups), converted_fields, walk.raw_groups, walk.raw_fields + walk.union_fields) == \
-        (stats["bitfield_groups"], stats["bitfields"], stats["bitfield_groups_raw"], stats["bitfields_as_storage"])
+          % (args.input, converted_fields, walk.integers, len(walk.groups), walk.raw_fields, walk.raw_runs, walk.union_fields, walk.dropped))
+    print("generator statistics: %s" % {k: stats[k] for k in ("bitfields", "bitfield_integers", "bitfields_as_storage", "bitfield_raw_runs", "dropped_members")})
+    ok = (converted_fields, walk.integers, walk.raw_fields + walk.union_fields, walk.raw_runs) == \
+        (stats["bitfields"], stats["bitfield_integers"], stats["bitfields_as_storage"], stats["bitfield_raw_runs"])
     print("counts agree with the generator: %s" % ("yes" if ok else "NO"))
     print("fields checked: %d (%d signed), %d asserts (sizeof + offsetof of the next named member)" % (fields_checked, signed_fields, n_asserts))
     gcc = ["gcc", "-include", "stdbool.h", "-w"]
