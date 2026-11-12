@@ -481,13 +481,17 @@ def apply_prototypes(prototypes, progress=None, imported=()):
     return result
 
 
-def report(source, generator, failed, result, named=0, cancelled=False, no_prototypes_32=False, no_own_btf=False):
+def report(source, generator, failed, result, named=0, cancelled=False, no_prototypes_32=False, no_own_btf=False, bitfield_note=None):
     stats = generator.stats
     lines = ["CANCELLED: the import stopped early, so only part of what is listed below reached the database."] if cancelled else []
     lines += [
         "BTF from %s: %d types" % (source, generator.btf.count),
         "Declarations sent to IDA: %d structs, %d unions, %d enums, %d typedefs (%d rejected by IDA); "
         "%d empty structs/unions as forward declarations only" % (stats["structs"], stats["unions"], stats["enums"], stats["typedefs"], len(failed), stats["empty"]),
+    ]
+    if bitfield_note:
+        lines.append(bitfield_note)
+    lines += [
         "Named %d exported functions from __ksymtab (the database had no name there)" % named,
         "Prototypes applied to %d functions; rejected by IDA %d; not in this database %d; name is not a function start %d" % (result["applied"], len(result["rejected"]), result["absent"], result["not_function"]),
     ]
@@ -541,6 +545,22 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
     if rejected:
         lines.append("Prototypes rejected by IDA (first %d of %d): %s" % (min(3, len(rejected)), len(rejected), ", ".join(rejected[:3])))
     return "\n".join(lines)
+
+
+def bitfield_order_problem():
+    """None when IDA allocates bitfields from the least significant bit in this database, as btf2c's C bitfields
+    need (BTF counts bit offsets that way); else why not. IDA follows the database's byte order (SDK ida.hpp:
+    inf_get_bf_order() returns BFO_MSB_TO_LSB when inf_is_be()); IDA 9.5 has inf_get_bf_order, older ones only
+    inf_is_be. Checked only against fake ida_ida modules."""
+    try:
+        if ida_ida.inf_is_be():
+            return "this database is big-endian, so IDA allocates bitfields from the most significant bit"
+        order = getattr(ida_ida, "inf_get_bf_order", None)  # IDA 9.5+
+        if order is not None and order() != getattr(ida_ida, "BFO_LSB_TO_MSB", 1):
+            return "IDA allocates bitfields from the most significant bit in this database"
+    except Exception as error:  # noqa: BLE001  (no answer: raw bytes are right in either order)
+        return "btf2ida could not read the database's bitfield order (%s)" % error
+    return None
 
 
 def bool_name():
@@ -629,7 +649,13 @@ def run_import(vmlinux=None, ask=True):
         else:
             source = "%s (a separate file: btf2ida cannot check that it is for this kernel build)" % chosen
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4
-    generator = btf2c.Generator(data, pointer_size, bool_name=bool_name())
+    order_problem = bitfield_order_problem()
+    generator = btf2c.Generator(data, pointer_size, bool_name=bool_name(), bitfields=order_problem is None)
+    bitfield_note = None
+    if order_problem:
+        bitfield_note = "Bitfields kept as raw bytes (names in a comment): %s, and BTF counts them from the least significant one" % order_problem
+    elif data.endian != "<":
+        bitfield_note = "Bitfields kept as raw bytes (names in a comment): the BTF is big-endian, where btf2c's C bitfields have not been checked"
     # 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate; other
     # 32-bit kernels (ARM, MIPS, RISC-V) use their standard C calling convention. Unknown processor: treat as x86.
     procname = (getattr(ida_ida, "inf_get_procname", lambda: None)() or "").lower()
@@ -657,7 +683,7 @@ def run_import(vmlinux=None, ask=True):
     if data.base is not None or source == SOURCE_NO_OWN_BTF:
         result["undefined"] = undefined_in_database()
     return report(source, generator, failed, result, named, cancelled=bool(ida_kernwin.user_cancelled()),
-                  no_prototypes_32=regparm, no_own_btf=source == SOURCE_NO_OWN_BTF)
+                  no_prototypes_32=regparm, no_own_btf=source == SOURCE_NO_OWN_BTF, bitfield_note=bitfield_note)
 
 
 

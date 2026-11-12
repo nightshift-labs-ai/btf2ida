@@ -367,6 +367,7 @@ api.PLUGIN_KEEP = 2
 api.PLUGIN_HIDE = 0x10
 ida = types.ModuleType("ida_ida")
 ida.inf_is_64bit = lambda: True
+ida.inf_is_be = lambda: False
 idc = types.ModuleType("idc")
 idc.PT_SIL, idc.PT_PAK1, idc.BADADDR = 1, 0x10, -1
 idc.parse_decls = lambda text, flags: calls.append(("parse", text, flags)) or text.count("struct broken")
@@ -410,6 +411,38 @@ assert "applied to 1 functions" in message and "not in this database 1" in messa
 assert m.import_in_batches(["a;", "BAD;", "b;"], lambda t: t.count("BAD"), batch=2) == ["BAD;"]
 assert "Named 0 exported functions" in message, message
 assert "imported kernel functions" not in message and not [c for c in calls if c[0] == "segtype"], "a whole kernel never looks for externs"
+assert "Bitfields kept as raw bytes" not in message, message
+# C bitfields need IDA to allocate bitfields from the least significant bit, as BTF counts them: in a big-endian
+# database (or where IDA 9.5's inf_get_bf_order says otherwise, or cannot tell) they stay raw bytes, and the summary says why.
+for setup, words in ((lambda: setattr(ida, "inf_is_be", lambda: True), "this database is big-endian"),
+                     (lambda: setattr(ida, "inf_get_bf_order", lambda: 2), "from the most significant bit in this database"),
+                     (lambda: setattr(ida, "inf_is_be", lambda: 1 // 0), "could not read the database's bitfield order")):
+    setup()
+    del calls[:]
+    assert m.ApplyBTF().activate(None) == 1
+    parsed = "\n".join(c[1] for c in calls if c[0] == "parse")
+    message = [c[1] for c in calls if c[0] == "info"][0]
+    assert "__bits_4[1]; /* a:3@0, b:5@3 */" in parsed and "b:5;" not in parsed, parsed
+    assert "Bitfields kept as raw bytes (names in a comment): " in message and words in message, message
+    ida.inf_is_be = lambda: False
+    if hasattr(ida, "inf_get_bf_order"):
+        del ida.inf_get_bf_order
+ida.inf_get_bf_order, ida.BFO_LSB_TO_MSB = (lambda: 1), 1                  # IDA 9.5, little-endian: C bitfields
+del calls[:]
+assert m.ApplyBTF().activate(None) == 1
+assert "signed char b:5;" in "\n".join(c[1] for c in calls if c[0] == "parse")
+del ida.inf_get_bf_order, ida.BFO_LSB_TO_MSB
+real_load_btf = m.find_btf
+def big_endian_btf(*args):
+    found, source = real_load_btf(*args)
+    found.endian = ">"  # as if read from a big-endian kernel (btf2c keeps its bitfields raw: not checked there)
+    return found, source
+m.find_btf = big_endian_btf
+del calls[:]
+assert m.ApplyBTF().activate(None) == 1
+m.find_btf = real_load_btf
+message = [c[1] for c in calls if c[0] == "info"][0]
+assert "Bitfields kept as raw bytes (names in a comment): the BTF is big-endian" in message, message
 
 # A kernel module (split BTF): its own functions are typed and counted as before. vmlinux's functions are
 # typed only where IDA lists them in an extern segment; the others are not counted as missing.
