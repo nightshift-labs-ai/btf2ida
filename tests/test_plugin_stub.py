@@ -533,6 +533,13 @@ assert [c[1] for c in calls if c[0] == "settype"] == [0x7600], calls
 assert (res["retyped"], res["applied"], res["kept"], res["void_removed"], res["void_asm"]) == (1, 1, 1, 1, 0), res
 assert ("del_tinfo", 0x7800) in calls and ("apply_tinfo", 0x7800, "memcpy", til.TINFO_GUESSED) in calls, calls
 assert shown[0x7700] == "IDA:long fn_b(long y);", "a type edited by hand must stay"
+addrs["fn_c"] = 0x7A00                                                   # run 1: btf2ida sets int fn_c(int x)
+res = m.apply_prototypes([("fn_c", "int fn_c(int x)")])
+assert res["applied"] == 1 and 0x7A00 in store, res
+library.add("fn_c")                         # run 2 (another kernel's BTF): void fn_c(void), IDA's library has fn_c(int)
+del calls[:]
+res = m.apply_prototypes([("fn_c", "void fn_c(void)")])
+assert (res["void_removed"], res["void_ida"]) == (0, 1) and shown[0x7A00] == "IDA:int __btf2ida_fn(int x);", (res, calls)
 userti = set()                                                            # without netnode support: as before
 del sys.modules["ida_netnode"]
 del calls[:]

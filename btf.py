@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """Read Linux BTF from a raw blob, an ELF file or any memory image. Standard library only."""
-import bz2
-import lzma
 import re
 import struct
 import zlib
@@ -332,8 +330,21 @@ def kernel_releases(blob):
 # Payload formats of an x86 bzImage (arch/x86/boot/compressed): magic at the start of the payload.
 BZIMAGE_FORMATS = ((b"\x1f\x8b", "gzip"), (b"\xfd7zXZ\x00", "xz"), (b"BZh", "bzip2"), (b"\x5d\x00\x00", "lzma"),
                    (b"\x28\xb5\x2f\xfd", "zstd"), (b"\x02\x21\x4c\x18", "lz4"), (b"\x89LZO", "lzo"))
-UNPACKERS = {"gzip": lambda: zlib.decompressobj(31), "xz": lambda: lzma.LZMADecompressor(lzma.FORMAT_XZ),
-             "lzma": lambda: lzma.LZMADecompressor(lzma.FORMAT_ALONE), "bzip2": bz2.BZ2Decompressor}
+
+
+def unpacker(kind):
+    """A decompressor object for a bzImage payload format. lzma and bz2 are optional parts of Python's standard library
+    (a Python built without liblzma has no lzma), so they are imported only here, when such a kernel is chosen."""
+    if kind == "gzip":
+        return zlib.decompressobj(31)
+    if kind in ("xz", "lzma"):
+        import lzma
+        return lzma.LZMADecompressor(lzma.FORMAT_XZ if kind == "xz" else lzma.FORMAT_ALONE)
+    import bz2
+    return bz2.BZ2Decompressor()
+
+
+UNPACKED = ("gzip", "xz", "lzma", "bzip2")
 UNPACK_TOOLS = {"zstd": "zstd (unzstd)", "lz4": "lz4", "lzo": "lzop"}
 
 
@@ -365,17 +376,27 @@ def unpack_kernel_image(blob, path):
     """
     if blob[:2] == b"\x1f\x8b":
         try:
-            return zlib.decompressobj(31).decompress(bytes(blob))
+            whole = zlib.decompressobj(31)
+            out = whole.decompress(bytes(blob))
+            return out if whole.eof else blob  # not a complete gzip stream: leave the file as it is
         except zlib.error:
             return blob
     found = bzimage_payload(blob)
     if found is None:
         return blob
     kind, payload = found
-    if kind in UNPACKERS:
+    if kind in UNPACKED:
         try:
-            return UNPACKERS[kind]().decompress(bytes(payload))
-        except (zlib.error, lzma.LZMAError, OSError, EOFError, ValueError) as error:
+            decompressor = unpacker(kind)
+            out = decompressor.decompress(bytes(payload))
+            if not decompressor.eof:
+                raise EOFError("the compressed kernel ends early (truncated file?)")
+            return out
+        except ImportError as error:
+            raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (bzImage, %s), and this Python has no "
+                           "%s module (%s): extract it with scripts/extract-vmlinux, or use a copy of "
+                           "/sys/kernel/btf/vmlinux from the same kernel" % (path, kind, kind, error))
+        except Exception as error:  # noqa: BLE001  (zlib.error, lzma.LZMAError, OSError, EOFError, ValueError)
             raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (bzImage, %s) that could not be "
                            "unpacked (%s): extract it with scripts/extract-vmlinux, or use a copy of "
                            "/sys/kernel/btf/vmlinux from the same kernel" % (path, kind, error))
@@ -394,9 +415,9 @@ def load_base(blob, path):
     try:
         return load(blob)
     except BTFError as error:
-        if blob[0x202:0x206] == b"HdrS":
-            hint = ("it is a compressed kernel image (bzImage): extract it first with scripts/extract-vmlinux, "
-                    "or use a copy of /sys/kernel/btf/vmlinux from the same kernel")
+        if blob[0x202:0x206] == b"HdrS":  # callers unpack first (unpack_kernel_image); kept for direct callers
+            hint = ("it is a compressed kernel image (bzImage): pass it through unpack_kernel_image, or use a copy of "
+                    "/sys/kernel/btf/vmlinux from the same kernel")
         else:
             hint = "use the uncompressed vmlinux of the same kernel build, or a copy of its /sys/kernel/btf/vmlinux"
         raise BTFError("the chosen vmlinux (%s) has no BTF (%s): %s" % (path, error, hint))

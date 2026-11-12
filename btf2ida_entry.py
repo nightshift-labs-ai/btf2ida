@@ -345,11 +345,12 @@ OWN_NODE = "$ btf2ida typed"
 
 
 def own_types():
-    """The netnode holding btf2ida's own earlier prototypes, or None (then every user-set type is kept)."""
+    """The netnode holding btf2ida's own earlier prototypes, or None (no record: user-set types are kept, except an old
+    void f(void) on a known assembly name)."""
     try:
         import ida_netnode
         return ida_netnode.netnode(OWN_NODE, 0, True)
-    except Exception:  # noqa: BLE001  (no netnode support: behave as before)
+    except Exception:  # noqa: BLE001  (no netnode support: no record)
         return None
 
 
@@ -408,8 +409,8 @@ def set_prototype(address, name, declaration, result, is_import=False, own=None)
             result["kept"] += 1
         return
     why = void_void_unsafe(address, name, declaration, check_current=not ours)  # btf2ida's own type is not IDA's
-    if why and ours:  # btf2ida's own earlier void f(void) goes; IDA's type library prototype comes back
-        remove_void_void(address, name, own, result)
+    if why and ours and not current_has_parameters(address):  # btf2ida's own earlier void f(void) goes; IDA's type
+        remove_void_void(address, name, own, result)                # library prototype for the symbol comes back
     elif why:
         result["void_" + why] += 1
     elif idc.SetType(address, unnamed(declaration, name) + ";"):
