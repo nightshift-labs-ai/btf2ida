@@ -368,6 +368,11 @@ with tempfile.TemporaryDirectory() as folder:
         raise AssertionError("a chosen file without BTF must fail")
     except B.BTFError as error:
         assert "has no usable BTF" in str(error), error
+    try:
+        m.run_import(os.path.join(folder, "no-such-file.btf"), ask=False)
+        raise AssertionError("a missing BTF file must fail with a clear message")
+    except B.BTFError as error:
+        assert "cannot read the chosen file" in str(error), error
     kw.ask_file = no_dialog
     autos.Segments = whole_segments
     nalt.get_input_file_path = lambda: paths["mod.ko"]

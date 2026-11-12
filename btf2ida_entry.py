@@ -565,8 +565,11 @@ def external_btf(vmlinux, ask):
         ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
     if not path:
         return None, None
-    with open(path, "rb") as handle:
-        blob = B.unpack_kernel_image(handle.read(), path)
+    try:
+        with open(path, "rb") as handle:
+            blob = B.unpack_kernel_image(handle.read(), path)
+    except OSError as error:
+        raise B.BTFError("cannot read the chosen file %s (%s)" % (path, error.strerror or error))
     try:
         return B.load(blob), path
     except B.NeedsBase:
