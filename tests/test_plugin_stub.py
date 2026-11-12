@@ -76,7 +76,8 @@ assert B.carve(b"\x01" * 37 + raw + b"\x02" * 11, min_types=1).count == 10, "car
 assert B.carve(b"\x01" * 37 + raw + b"\x02" * 11) is None, "a small BPF-sized BTF is not a kernel"
 gen = btf2c.Generator(data)
 text = btf2c.header(gen)
-assert "int private_;" in text and "__bits_4[1]" in text and "int (*cb)(struct task *arg);" in text.replace("a1", "arg"), text
+assert "int private_;" in text and "int (*cb)(struct task *arg);" in text.replace("a1", "arg"), text
+assert "  signed char a:3;\n  signed char b:5;\n" in text, "a 1-byte group of signed int bitfields: signed char, full"
 assert "RED = 2," in text and "typedef int mode_t;" in text
 assert ("get_it", "int get_it(struct task *arg)") in gen.prototypes(), gen.prototypes()
 with tempfile.TemporaryDirectory() as folder:
@@ -84,6 +85,242 @@ with tempfile.TemporaryDirectory() as folder:
     with open(path, "w") as handle:
         handle.write(text + "_Static_assert(sizeof(struct task) == 32, \"size\");\n_Static_assert(__builtin_offsetof(struct task, cb) == 8, \"cb\");\n")
     subprocess.run(["gcc", "-fsyntax-only", "-w", path], check=True)
+
+# Bitfields: a group of 1, 2, 4 or 8 bytes becomes C bitfields that fill one integer of that size exactly, with
+# named fillers for unused bits; signed ints and signed enums stay signed, _Bool is unsigned; other sizes stay raw bytes.
+f = Build()
+f.t("unsigned int", 1, 0, 4, struct.pack("<I", 32))                                   # 1
+f.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                  # 2
+f.t("_Bool", 1, 0, 1, struct.pack("<I", 4 << 24 | 8))                                 # 3
+f.t("level", 6, 2, 4, struct.pack("<IiIi", f.s("LOW"), -1, f.s("HIGH"), 3), kflag=1)  # 4  enum with a negative value
+f.t("long long unsigned int", 1, 0, 8, struct.pack("<I", 64))                         # 5
+f.t("long long int", 1, 0, 8, struct.pack("<I", 1 << 24 | 64))                        # 6
+f.t("flags", 4, 9, 24, kflag=1, extra=struct.pack(                                    # 7
+    "<" + "III" * 9,
+    f.s("ready"), 1, 1 << 24 | 0, f.s("mode"), 2, 3 << 24 | 1, f.s("refs"), 1, 8 << 24 | 6,  # bytes 0-1, gaps
+    f.s("x"), 2, 32,
+    f.s("big"), 1, 20 << 24 | 64,                                                      # bytes 8-10: 3 bytes, raw
+    f.s("lvl"), 4, 4 << 24 | 96, f.s("on"), 3, 1 << 24 | 100,                          # byte 12
+    f.s("addr"), 5, 52 << 24 | 128, f.s("sign"), 6, 12 << 24 | 180))                   # bytes 16-23
+fdata = B.BTF(f.blob())
+fgen = btf2c.Generator(fdata)
+ftext = btf2c.header(fgen)
+assert """struct flags {
+  unsigned short ready:1;
+  signed short mode:3;
+  unsigned short __pad_bits_0_4:2;
+  unsigned short refs:8;
+  unsigned short __pad_bits_0_14:2;
+  unsigned char __pad_2[2];
+  int x;
+  unsigned char __bits_8[3]; /* big:20@0 */
+  unsigned char __pad_b[1];
+  signed char lvl:4;
+  unsigned char on:1;
+  unsigned char __pad_bits_c_5:3;
+  unsigned char __pad_d[3];
+  unsigned long long addr:52;
+  signed long long sign:12;
+};""" in ftext, ftext
+assert (fgen.stats["bitfield_integers"], fgen.stats["bitfields"], fgen.stats["bitfield_raw_runs"], fgen.stats["bitfields_as_storage"]) == (3, 7, 1, 1), fgen.stats
+# Overlapping bitfields (not in real kernels) stay raw bytes, an unnamed bitfield is left to a filler, and a bitfield
+# that starts right where the previous group ends joins it (3 bytes + 1 byte = one 4-byte integer).
+o = Build()
+o.t("unsigned int", 1, 0, 4, struct.pack("<I", 32))                                   # 1
+o.t("unsigned char", 1, 0, 1, struct.pack("<I", 8))                                   # 2
+o.t("odd", 4, 7, 8, kflag=1, extra=struct.pack(                                       # 3
+    "<" + "III" * 7,
+    o.s("a"), 1, 4 << 24 | 0, o.s("b"), 1, 4 << 24 | 2,                                # byte 0: b overlaps a
+    o.s("c"), 1, 3 << 24 | 16, 0, 1, 2 << 24 | 19, o.s("d"), 1, 3 << 24 | 21,          # byte 2: c, an unnamed :2, d
+    o.s("e"), 1, 20 << 24 | 32, o.s("f"), 2, 8 << 24 | 56))                            # bytes 4-6 and byte 7
+o.t("cut", 4, 7, 18, kflag=1, extra=struct.pack(                                      # 4  groups cut at byte boundaries
+    "<" + "III" * 7,
+    o.s("priv"), 1, 32 << 24 | 0, o.s("lltx"), 1, 1 << 24 | 32,                        # 5 bytes: int + char
+    o.s("a"), 1, 20 << 24 | 64, o.s("b"), 1, 4 << 24 | 84, o.s("c"), 1, 32 << 24 | 88,   # 7 bytes: 3 raw + int
+    o.s("x"), 2, 8 << 24 | 128, o.s("y"), 2, 8 << 24 | 136))                           # 2 bytes of u8: two chars
+o.t("short unsigned int", 1, 0, 2, struct.pack("<I", 16))                             # 5
+o.t("units", 4, 6, 8, kflag=1, extra=struct.pack(                                     # 6  the declared type's own units
+    "<" + "III" * 6,
+    o.s("p"), 5, 8 << 24 | 8, o.s("q"), 5, 8 << 24 | 16, o.s("r"), 5, 8 << 24 | 24, o.s("s"), 5, 8 << 24 | 32,  # u16, bytes 1-4
+    o.s("m"), 1, 8 << 24 | 48, o.s("n"), 1, 8 << 24 | 56))                             # u32 in bytes 6-7: no own unit
+o.t("order", 4, 4, 4, kflag=1, extra=struct.pack(                                     # 7  converting comes first
+    "<" + "III" * 4, o.s("f0"), 2, 1 << 24 | 0, o.s("f1"), 2, 1 << 24 | 1, o.s("f2"), 2, 1 << 24 | 2, o.s("g"), 1, 24 << 24 | 8))
+odata = B.BTF(o.blob())
+ogen = btf2c.Generator(odata)
+otext = btf2c.header(ogen)
+assert """struct odd {
+  unsigned char __bits_0[1]; /* a:4@0, b:4@2 */
+  unsigned char __pad_1[1];
+  unsigned char c:3;
+  unsigned char __pad_bits_2_3:2;
+  unsigned char d:3;
+  unsigned char __pad_3[1];
+  unsigned int e:20;
+  unsigned int __pad_bits_4_20:4;
+  unsigned int f:8;
+};""" in otext, otext
+assert """struct cut {
+  unsigned int priv:32;
+  unsigned char lltx:1;
+  unsigned char __pad_bits_4_1:7;
+  unsigned char __pad_5[3];
+  unsigned char __bits_8[3]; /* a:20@0, b:4@20 */
+  unsigned int c:32;
+  unsigned char __pad_f[1];
+  unsigned char x:8;
+  unsigned char y:8;
+};""" in otext, otext
+# Several cuts convert as many bitfields: an integer of the declared type's size at an offset aligned to it wins (u16
+# q and r share the aligned short at byte 2; p and s get chars), else the fewest integers (u32 m, n: one short).
+assert """struct units {
+  unsigned char __pad_0[1];
+  unsigned char p:8;
+  unsigned short q:8;
+  unsigned short r:8;
+  unsigned char s:8;
+  unsigned char __pad_5[1];
+  unsigned short m:8;
+  unsigned short n:8;
+};""" in otext, otext
+# Converting the most bitfields comes before their own unit: u8 flags + u32 g:24 stay one int (a char for the flags
+# would leave g's 3 bytes raw).
+assert """struct order {
+  unsigned int f0:1;
+  unsigned int f1:1;
+  unsigned int f2:1;
+  unsigned int __pad_bits_0_3:5;
+  unsigned int g:24;
+};""" in otext, otext
+assert (ogen.stats["bitfield_integers"], ogen.stats["bitfields"], ogen.stats["bitfield_raw_runs"], ogen.stats["bitfields_as_storage"]) == (12, 20, 2, 4), ogen.stats
+oraw = btf2c.header(btf2c.Generator(odata, bitfields=False))  # the earlier form: one raw run per group
+assert "__bits_0[5]; /* priv:32@0, lltx:1@32 */" in oraw and "__bits_8[7]; /* a:20@0, b:4@20, c:32@24 */" in oraw and "__bits_10[2]; /* x:8@0, y:8@8 */" in oraw, oraw
+big_endian = B.BTF(f.blob())
+big_endian.endian = ">"
+for fold in (btf2c.Generator(fdata, bitfields=False), btf2c.Generator(big_endian)):
+    otext = btf2c.header(fold)  # the raw-byte form: on request, and for big-endian BTF (not checked there)
+    assert "__bits_0[2]; /* ready:1@0, mode:3@1, refs:8@6 */" in otext and "__bits_c[1]" in otext and "__bits_10[8]" in otext, otext
+    assert "ready:1;" not in otext and "addr:52;" not in otext and fold.stats["bitfields"] == 0, otext
+with tempfile.TemporaryDirectory() as folder:  # the gcc layout proof of tests/check_bitfields.py, GCC and MSVC rules
+    path = os.path.join(folder, "flags.btf")
+    with open(path, "wb") as handle:
+        handle.write(f.blob())
+    run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"), path],
+                         capture_output=True, text=True)
+    assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
+    assert "fields checked: 7 (3 signed)" in run.stdout and "bitfield checks 28, failures 0" in run.stdout, run.stdout
+    path, out = os.path.join(folder, "flags.btf"), os.path.join(folder, "flags.h")  # btf2c.py --no-bitfields: raw bytes
+    btf2c.main([path, out, "--no-bitfields"])
+    with open(out, encoding="utf-8") as handle:
+        assert "__bits_0[2]; /* ready:1@0, mode:3@1, refs:8@6 */" in handle.read()
+    btf2c.main([path, out])
+    with open(out, encoding="utf-8") as handle:
+        assert "  unsigned short ready:1;\n" in handle.read()
+    path = os.path.join(folder, "odd.btf")  # overlap kept raw, unnamed filler, merged groups: gcc agrees with the BTF
+    with open(path, "wb") as handle:
+        handle.write(o.blob())
+    run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"), path],
+                         capture_output=True, text=True)
+    assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
+    assert "fields checked: 19 (0 signed)" in run.stdout and "counts agree with the generator: yes" in run.stdout, run.stdout
+    sc = Build()  # old pahole (Debian 11 5.10, GKI 6.1) encodes `signed char` 0: still signed; plain char as BTF says
+    sc.t("signed char", 1, 0, 1, struct.pack("<I", 8))                                    # 1
+    sc.t("char", 1, 0, 1, struct.pack("<I", 8))                                           # 2
+    sc.t("sc", 4, 2, 1, kflag=1, extra=struct.pack("<IIIIII", sc.s("x"), 1, 5 << 24 | 0, sc.s("y"), 2, 3 << 24 | 5))
+    assert "  signed char x:5;\n  unsigned char y:3;\n" in btf2c.header(btf2c.Generator(B.BTF(sc.blob())))
+    path = os.path.join(folder, "sc.btf")
+    with open(path, "wb") as handle:
+        handle.write(sc.blob())
+    run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"), path],
+                         capture_output=True, text=True)  # gcc reads x back negative
+    assert run.returncode == 0 and "fields checked: 2 (1 signed)" in run.stdout and run.stdout.rstrip().endswith("PASS"), run.stdout
+    plain = Build()  # no bitfield at all: nothing to check is not a failure
+    plain.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))
+    plain.t("plain", 4, 1, 4, struct.pack("<III", plain.s("x"), 1, 0))
+    for name, content, code, words in (("plain.btf", plain.blob(), 0, "NOTHING TO CHECK"), ("nobtf.bin", b"\0" * 4096, 2, "no BTF found")):
+        with open(os.path.join(folder, name), "wb") as handle:
+            handle.write(content)
+        run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"),
+                              os.path.join(folder, name)], capture_output=True, text=True)
+        assert run.returncode == code and words in run.stdout + run.stderr and "Traceback" not in run.stderr, (name, run.stdout, run.stderr)
+# What the plugin compares with IDA's layout after the import (Generator.bitfield_layout): each struct/union with a
+# group of bitfields in its own scope or in an inline anonymous member, with its size and the absolute bit offset and
+# width of each named C bitfield (a named inline member adds "name." to the path; [] when all are raw bytes). A
+# bitfield directly in a union is never a C bitfield and is not listed. Generator.struct_text keeps each declaration.
+n = Build()
+n.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                   # 1
+n.t("unsigned char", 1, 0, 1, struct.pack("<I", 8))                                    # 2
+n.t("", 4, 2, 4, kflag=1, extra=struct.pack("<IIIIII", n.s("a"), 2, 3 << 24, n.s("b"), 2, 5 << 24 | 3))  # 3  anonymous
+n.t("", 4, 1, 4, struct.pack("<III", 0, 6, 8))                                       # 4  anonymous, member 'inner'
+n.t("outer", 4, 4, 16, struct.pack("<" + "III" * 4, n.s("x"), 1, 0, 0, 3, 32, n.s("inner"), 4, 64, n.s("y"), 1, 96))  # 5
+n.t("", 4, 1, 3, kflag=1, extra=struct.pack("<III", n.s("c"), 2, 2 << 24 | 1))         # 6  anonymous, inside 4 at byte 1
+n.t("rawonly", 4, 2, 8, kflag=1, extra=struct.pack("<IIIIII", n.s("big"), 1, 20 << 24, n.s("z"), 1, 32))  # 7  3 raw bytes
+n.t("u", 5, 2, 4, kflag=1, extra=struct.pack("<IIIIII", n.s("p"), 1, 3 << 24, n.s("q"), 1, 0))  # 8  union: p not listed
+ngen = btf2c.Generator(B.BTF(n.blob()))
+ngen.declarations()
+assert ngen.bitfield_layout == {"outer": (16, [("a", 32, 3), ("b", 35, 5), ("inner.c", 73, 2)]), "rawonly": (8, [])}, ngen.bitfield_layout
+assert set(ngen.struct_text) == {"outer", "rawonly", "u"} and all(text in ngen.body for text in ngen.struct_text.values())
+nraw = btf2c.Generator(B.BTF(n.blob()), bitfields=False)
+nraw.declarations()
+assert nraw.bitfield_layout == {"outer": (16, []), "rawonly": (8, [])}, nraw.bitfield_layout
+assert nraw.struct_text["outer"].startswith("struct outer {\n") and "__bits_0_n2[1]; /* a:3@0, b:5@3 */" in nraw.struct_text["outer"] \
+    and "b:5;" not in nraw.struct_text["outer"], nraw.struct_text["outer"]
+with tempfile.TemporaryDirectory() as folder:  # check_bitfields.py finds the same types and bitfields on its own
+    path = os.path.join(folder, "nested.btf")
+    with open(path, "wb") as handle:
+        handle.write(n.blob())
+    run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"), path],
+                         capture_output=True, text=True)
+    assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
+    assert "(Generator.bitfield_layout) agrees: yes (2 types with bitfields, 1 of them with C bitfields, 3 C bitfields)" in run.stdout, run.stdout
+# The toy demo's expected header is what btf2c.py writes for it now.
+toy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demo")
+with open(os.path.join(toy, "toy_kernel.elf"), "rb") as handle:
+    toy_text = btf2c.header(btf2c.Generator(B.load(handle.read())))
+with open(os.path.join(toy, "expected_types.h"), encoding="utf-8") as handle:
+    assert handle.read() == toy_text, "demo/expected_types.h is out of date"
+assert "  unsigned short ready:1;\n  unsigned short mode:3;\n  unsigned short refs:12;\n  unsigned char __pad_a[2];\n" in toy_text
+print("stub test OK: bitfield groups cut into full C bitfield integers of 1/2/4/8 bytes (signed kept), other runs raw; gcc layout check passes")
+
+# tests/check_against_dwarf.py on a tiny BTF and a hand-written ISF: its exit status is the verdict (0 only when the
+# kernel releases match or one is unknown and nothing differs), so a mismatch cannot pass unnoticed.
+import base64  # noqa: E402
+import json  # noqa: E402
+import lzma  # noqa: E402
+p = Build()
+p.t("unsigned int", 1, 0, 4, struct.pack("<I", 32))                                   # 1
+p.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                  # 2
+p.t("pair", 4, 3, 8, kflag=1, extra=struct.pack("<" + "III" * 3, p.s("a"), 1, 3 << 24 | 0, p.s("b"), 2, 5 << 24 | 3, p.s("c"), 2, 32))
+
+
+def isf(size=8, b_position=3, b_type="int", release="9.9.9-test"):
+    bitfield = lambda position, length, name: {"kind": "bitfield", "bit_position": position, "bit_length": length,  # noqa: E731
+                                               "type": {"kind": "base", "name": name}}
+    return {"metadata": {"linux": {"symbols": [{"kind": "dwarf", "name": "vmlinux-" + release}]}},
+            "symbols": {"linux_banner": {"constant_data": base64.b64encode(b"Linux version %s (builder) #1\n\0" % release.encode()).decode()}},
+            "base_types": {"unsigned int": {"kind": "int", "signed": False, "size": 4}, "int": {"kind": "int", "signed": True, "size": 4}},
+            "user_types": {"pair": {"kind": "struct", "size": size, "fields": {
+                "a": {"offset": 0, "type": bitfield(0, 3, "unsigned int")}, "b": {"offset": 0, "type": bitfield(b_position, 5, b_type)},
+                "c": {"offset": 4, "type": {"kind": "base", "name": "int"}}}}}}
+
+
+dwarf_check = os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_against_dwarf.py")
+with tempfile.TemporaryDirectory() as folder:
+    kernel, bare, isf_path = (os.path.join(folder, name) for name in ("kernel.btf", "bare.btf", "isf.json.xz"))
+    with open(kernel, "wb") as handle:
+        handle.write(p.blob() + b"Linux version 9.9.9-test (builder) #1\n\0")
+    with open(bare, "wb") as handle:
+        handle.write(p.blob())
+    for kernel_file, kwargs, code, words in ((kernel, {}, 0, "matches the ISF: 9.9.9-test"), (bare, {}, 0, "not checked"),
+                                             (kernel, {"size": 12}, 1, "size mismatches 1"),
+                                             (kernel, {"b_position": 4}, 1, "bit position or width mismatches 1"),
+                                             (kernel, {"b_type": "unsigned int"}, 1, "signedness compared 2, mismatches 1"),
+                                             (kernel, {"release": "9.9.8-other"}, 1, "DIFFERENT kernels")):
+        with lzma.open(isf_path, "wt") as handle:
+            json.dump(isf(**kwargs), handle)
+        run = subprocess.run([sys.executable, dwarf_check, kernel_file, isf_path], capture_output=True, text=True)
+        assert run.returncode == code and words in run.stdout, (kwargs, run.returncode, run.stdout, run.stderr)
+    assert subprocess.run([sys.executable, dwarf_check], capture_output=True).returncode == 2
+print("stub test OK: check_against_dwarf exits 1 on a size, bit position, signedness or kernel release mismatch")
 
 # An empty struct (size 0 in BTF) gets a forward declaration only and is counted apart from real bodies.
 e = Build()
@@ -153,7 +390,8 @@ kw.action_handler_t = object
 kw.action_desc_t = lambda *a: a
 kw.SETMENU_APP = 1
 kw.AST_ENABLE_ALWAYS = 1
-kw.register_action = lambda d: calls.append(("reg", d[0])) or True
+registered = []  # the action_desc_t tuples: (name, label, handler)
+kw.register_action = lambda d: calls.append(("reg", d[0])) or registered.append(d) or True
 kw.attach_action_to_menu = lambda m, a, f: calls.append(("menu", m, a)) or True
 kw.unregister_action = lambda a: calls.append(("unreg", a)) or True
 kw.msg = lambda s: calls.append(("msg", s))
@@ -171,6 +409,7 @@ api.PLUGIN_HIDE = 0x10
 ida = types.ModuleType("ida_ida")
 ida.inf_is_64bit = lambda: True
 ida.inf_is_auto_enabled = lambda: True                                # Options > General > Analysis > Enabled
+ida.inf_is_be = lambda: False
 idc = types.ModuleType("idc")
 idc.PT_SIL, idc.PT_PAK1, idc.BADADDR = 1, 0x10, -1
 idc.parse_decls = lambda text, flags: calls.append(("parse", text, flags)) or text.count("struct broken")
@@ -208,11 +447,25 @@ import btf2ida_entry as m  # noqa: E402
 
 plugin = m.PLUGIN_ENTRY()
 assert plugin.init() == api.PLUGIN_KEEP
+# Two menu items: the import, and the same import with every bitfield as raw bytes (the opt-out from C bitfields).
+assert [c for c in calls if c[0] in ("reg", "menu")] == [("reg", "btf2ida:apply"), ("menu", "Edit/Plugins/", "btf2ida:apply"),
+                                                         ("reg", "btf2ida:apply_raw_bitfields"),
+                                                         ("menu", "Edit/Plugins/", "btf2ida:apply_raw_bitfields")], calls
+assert [(d[1], d[2].bitfields) for d in registered] == [("BTF2IDA: Apply kernel types and prototypes", True),
+                                                       ("BTF2IDA: Apply kernel types and prototypes (bitfields as raw bytes)", False)]
+del calls[:]
+assert registered[1][2].activate(None) == 1
+parsed = "\n".join(c[1] for c in calls if c[0] == "parse")
+message = [c[1] for c in calls if c[0] == "info"][0]
+assert "__bits_4[1]; /* a:3@0, b:5@3 */" in parsed and "b:5;" not in parsed, parsed
+assert "Bitfields kept as raw bytes (names in a comment), as asked (menu item 'BTF2IDA: Apply kernel types and prototypes " \
+       "(bitfields as raw bytes)', headless --no-bitfields)" in message, message
+del calls[:]
 assert m.ApplyBTF().activate(None) == 1
 assert [c for c in calls if c[0] == "settype"] == [("settype", 0x1000, "int __btf2ida_fn(struct task *arg);")], calls
 assert all(c[2] == idc.PT_SIL | idc.PT_PAK1 for c in calls if c[0] == "parse")
 parsed = "\n".join(c[1] for c in calls if c[0] == "parse")
-assert "struct task {" in parsed and "#pragma" not in parsed
+assert "struct task {" in parsed and "#pragma" not in parsed and "signed char b:5;" in parsed
 message = [c[1] for c in calls if c[0] == "info"][0]
 assert "applied to 1 functions" in message and "not in this database 1" in message and "not a function start 1" in message and "1 compiler clones" in message, message
 assert m.import_in_batches(["a;", "BAD;", "b;"], lambda t: t.count("BAD"), batch=2) == ["BAD;"]
@@ -261,6 +514,209 @@ assert not [c for c in calls if c[0] in ("ask_yn", "auto_wait")], calls
 kw.hide_wait_box, kw.show_wait_box = hide, show
 auto.auto_is_ok, auto.auto_wait = (lambda: True), (lambda: True)
 kw.ask_yn = lambda deflt, text: calls.append(("ask_yn", deflt, text)) or kw.ASKBTN_NO
+assert "Bitfields kept as raw bytes" not in message, message
+# C bitfields need IDA to allocate bitfields from the least significant bit, as BTF counts them: in a big-endian
+# database (or where IDA 9.5's inf_get_bf_order says otherwise, or cannot tell) they stay raw bytes, and the summary says why.
+for setup, words in ((lambda: setattr(ida, "inf_is_be", lambda: True), "this database is big-endian"),
+                     (lambda: setattr(ida, "inf_get_bf_order", lambda: 2), "from the most significant bit in this database"),
+                     (lambda: setattr(ida, "inf_is_be", lambda: 1 // 0), "could not read the database's bitfield order")):
+    setup()
+    del calls[:]
+    assert m.ApplyBTF().activate(None) == 1
+    parsed = "\n".join(c[1] for c in calls if c[0] == "parse")
+    message = [c[1] for c in calls if c[0] == "info"][0]
+    assert "__bits_4[1]; /* a:3@0, b:5@3 */" in parsed and "b:5;" not in parsed, parsed
+    assert "Bitfields kept as raw bytes (names in a comment): " in message and words in message, message
+    ida.inf_is_be = lambda: False
+    if hasattr(ida, "inf_get_bf_order"):
+        del ida.inf_get_bf_order
+ida.inf_get_bf_order, ida.BFO_LSB_TO_MSB = (lambda: 1), 1                  # IDA 9.5, little-endian: C bitfields
+del calls[:]
+assert m.ApplyBTF().activate(None) == 1
+assert "signed char b:5;" in "\n".join(c[1] for c in calls if c[0] == "parse")
+del ida.inf_get_bf_order, ida.BFO_LSB_TO_MSB
+real_load_btf = m.find_btf
+def big_endian_btf(*args):
+    found, source = real_load_btf(*args)
+    found.endian = ">"  # as if read from a big-endian kernel (btf2c keeps its bitfields raw: not checked there)
+    return found, source
+m.find_btf = big_endian_btf
+del calls[:]
+assert m.ApplyBTF().activate(None) == 1
+m.find_btf = real_load_btf
+message = [c[1] for c in calls if c[0] == "info"][0]
+assert "Bitfields kept as raw bytes (names in a comment): the BTF is big-endian" in message, message
+del calls[:]                                                               # the opt-out (headless --no-bitfields)
+message = m.run_import(bitfields=False)
+parsed = "\n".join(c[1] for c in calls if c[0] == "parse")
+assert "__bits_4[1]; /* a:3@0, b:5@3 */" in parsed and "b:5;" not in parsed and "headless --no-bitfields)" in message, message
+
+# After the import, IDA's layout of each struct/union with bitfields is compared with what btf2c declared from the
+# BTF (size, C bitfield bit offsets and widths, no other named bitfield, direct members' offsets); one that differs
+# is re-declared with raw bytes (parse_decl + set_named_type NTF_REPLACE) and checked again. Fake ida_typeinf: IDA's
+# layouts are written here by hand (udm_t offsets and sizes in bits; an anonymous member named "__..." as in IDA).
+assert "Bitfield layout not checked in IDA (no ida_typeinf module)" in m.run_import(), "no ida_typeinf: said so"
+ti = types.ModuleType("ida_typeinf")
+ti.PT_SIL, ti.PT_TYP, ti.NTF_REPLACE, ti.TERR_OK = 1, 4, 4, 0                # values from the SDK's typeinf.hpp
+ti.get_idati = lambda: "idati"
+ida_types = {}  # tag -> (size, [Udm]) as IDA would hold it
+replace_ok = [True, True]  # parse_decl takes the raw declaration; set_named_type stores it
+
+
+class Udm:
+    def __init__(self, name, offset, size, members=None, bitfield=False):
+        self.name, self.offset, self.size, self.bitfield = name, offset, size, bitfield
+        self.type = FakeTif(("anon", members) if members is not None else None)
+
+    def is_bitfield(self):
+        return self.bitfield
+
+    def is_anonymous_udm(self):  # typeinf.hpp: a name that starts with "__" and an anonymous struct/union type
+        return self.name.startswith("__") and self.type.is_anonymous_udt()
+
+
+class FakeTif:
+    def __init__(self, kind=None):
+        self.kind = kind  # None: not a struct; ("anon", [Udm]) or ("named", tag)
+
+    def get_named_type(self, til_, name):
+        assert til_ == "idati"
+        self.kind = ("named", name) if name in ida_types else None
+        return self.kind is not None
+
+    def get_size(self):
+        return ida_types[self.kind[1]][0]
+
+    def is_anonymous_udt(self):
+        return bool(self.kind) and self.kind[0] == "anon"
+
+    def get_udt_details(self, udt):
+        if not self.kind:
+            return False
+        udt.extend(self.kind[1] if self.kind[0] == "anon" else ida_types[self.kind[1]][1])
+        return True
+
+    def set_named_type(self, til_, name, flags):
+        calls.append(("set_named_type", name, flags))
+        if replace_ok[1]:
+            ida_types[name] = self.parsed
+        return ti.TERR_OK
+
+
+def bf(name, offset, size):
+    return Udm(name, offset, size, bitfield=True)
+
+
+def outer_in_ida(size=16, a_name="a", b_at=3, c_at=1, y_at=96):  # struct outer of the 'n' BTF above, with C bitfields
+    return (size, [Udm("x", 0, 32), Udm("__anon_s0", 32, 32, [bf(a_name, 0, 3), bf("b", b_at, 5), Udm("__pad_1_n2", 8, 24)]),
+                   Udm("inner", 64, 32, [Udm("__pad_0_n3", 0, 8), Udm("__anon_s1", 8, 24, [
+                       bf("__pad_bits_0_0_n4", 0, 1), bf("c", c_at, 2), bf("__pad_bits_0_3_n4", 3, 5), Udm("__pad_1_n4", 8, 16)])]),
+                   Udm("y", y_at, 32)])
+
+
+RAW_IN_IDA = {  # what IDA would hold for the raw declarations (Generator(bitfields=False).struct_text)
+    "outer": (16, [Udm("x", 0, 32), Udm("__anon_s0", 32, 32, [Udm("__bits_0_n2", 0, 8), Udm("__pad_1_n2", 8, 24)]),
+                   Udm("inner", 64, 32, [Udm("__pad_0_n3", 0, 8), Udm("__anon_s1", 8, 24, [Udm("__bits_0_n4", 0, 8), Udm("__pad_1_n4", 8, 16)])]),
+                   Udm("y", 96, 32)]),
+    "rawonly": (8, [Udm("__bits_0", 0, 24), Udm("__pad_3", 24, 8), Udm("z", 32, 32)]),
+    "task": (32, [Udm("private_", 0, 32), Udm("__bits_4", 32, 8), Udm("__pad_5", 40, 24), Udm("cb", 64, 64), Udm("__pad_10", 128, 128)]),
+}
+
+
+def parse_decl(tif, til_, text, flags):
+    calls.append(("parse_decl", text, flags))
+    tag = text.split(" ", 2)[1]
+    tif.parsed = RAW_IN_IDA[tag]
+    return tag if replace_ok[0] else None
+
+
+ti.tinfo_t, ti.udt_type_data_t, ti.parse_decl = FakeTif, list, parse_decl
+sys.modules["ida_typeinf"] = ti
+raw_n = lambda: btf2c.Generator(B.BTF(n.blob()), bitfields=False)  # noqa: E731
+HINT = "(raw bytes for every struct: menu item 'BTF2IDA: Apply kernel types and prototypes (bitfields as raw bytes)', headless --no-bitfields)"
+ida_types.update(outer=outer_in_ida(), rawonly=RAW_IN_IDA["rawonly"])
+del calls[:]
+line = m.check_bitfield_layouts(ngen, raw_n)
+assert line == "Bitfield layout checked in IDA: 2 structs/unions with bitfields (1 with C bitfields) have the BTF's size, " \
+               "bitfield positions and member offsets" and not calls, (line, calls)
+for wrong, why in (({"b_at": 4}, "b: bit 36 width 5 in IDA, bit 35 width 5 in BTF"), ({"size": 17}, "size 17 in IDA, 16 in BTF"),
+                   ({"c_at": 0}, "inner.c: bit 72 width 2 in IDA, bit 73 width 2 in BTF"), ({"y_at": 104}, "y: bit 104 in IDA, byte 12 in BTF"),
+                   ({"a_name": "a2"}, "a: no such bitfield in IDA, bit 32 width 3 in BTF")):
+    ida_types["outer"] = outer_in_ida(**wrong)
+    del calls[:]
+    line = m.check_bitfield_layouts(ngen, raw_n)
+    assert line == "Bitfield layout in IDA does not match the BTF in 1 of 2 structs/unions with bitfields (first: outer: %s); 1 of " \
+                   "them re-declared with raw bytes (names in a comment), and IDA then lays them out as the BTF does" % why, line
+    assert calls == [("parse_decl", nraw.struct_text["outer"], ti.PT_SIL | ti.PT_TYP | idc.PT_PAK1),
+                     ("set_named_type", "outer", ti.NTF_REPLACE)], calls
+    assert ida_types["outer"] is RAW_IN_IDA["outer"]
+ida_types["outer"] = outer_in_ida()
+ida_types["rawonly"] = (8, [bf("big", 0, 20), bf("__pad_bits_0_20", 20, 4), Udm("__pad_3", 24, 8), Udm("z", 32, 32)])
+line = m.check_bitfield_layouts(ngen, raw_n)  # a named bitfield where raw bytes were declared is a difference too
+assert "(first: rawonly: big: a bitfield in IDA, raw bytes in the declaration); 1 of them re-declared" in line, line
+assert ida_types["rawonly"] is RAW_IN_IDA["rawonly"]
+good_raw = RAW_IN_IDA["outer"]
+for failing, raw_layout in (([False, True], good_raw), ([True, False], good_raw), ([True, True], (16, good_raw[1][:-1] + [Udm("y", 104, 32)]))):
+    replace_ok[:] = failing  # IDA refuses the raw declaration, keeps the old layout, or lays the raw one out wrong too
+    RAW_IN_IDA["outer"] = raw_layout
+    ida_types["outer"] = outer_in_ida(b_at=4)
+    line = m.check_bitfield_layouts(ngen, raw_n)
+    assert line.endswith("; 0 of them re-declared with raw bytes (names in a comment), and IDA then lays them out as the BTF does; "
+                         "1 could not be: please report it at %s %s" % (m.ISSUES_URL, HINT)), line
+replace_ok[:] = [True, True]
+RAW_IN_IDA["outer"] = good_raw
+del ida_types["outer"]
+assert m.check_bitfield_layouts(ngen, raw_n) == "Bitfield layout checked in IDA: 1 structs/unions with bitfields (0 with C " \
+    "bitfields) have the BTF's size, bitfield positions and member offsets; 1 not found in IDA's local types"
+# A raw-bytes import (the opt-out) on a database that still holds C bitfields from an earlier import: re-declared too.
+ida_types["outer"] = outer_in_ida()
+del calls[:]
+line = m.check_bitfield_layouts(nraw, lambda: nraw)
+assert line == "Bitfield layout in IDA does not match the BTF in 1 of 2 structs/unions with bitfields (first: outer: a: a bitfield in " \
+               "IDA, raw bytes in the declaration); 1 of them re-declared with raw bytes (names in a comment), and IDA then lays " \
+               "them out as the BTF does", line
+assert [c[0] for c in calls] == ["parse_decl", "set_named_type"] and calls[0][1] == nraw.struct_text["outer"], calls
+replace_ok[:] = [False, True]
+ida_types["outer"] = outer_in_ida()
+line = m.check_bitfield_layouts(nraw, lambda: nraw)
+assert line.endswith("1 could not be: please report it at %s" % m.ISSUES_URL), line  # no hint to the raw-bytes item: this is it
+replace_ok[:] = [True, True]
+# Only direct members' offsets are compared: a member of a named inline struct may have a direct member's name.
+d = Build()
+d.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                   # 1
+d.t("", 4, 3, 12, kflag=1, extra=struct.pack("<" + "III" * 3, d.s("q"), 1, 0, d.s("y"), 1, 32, d.s("f"), 1, 3 << 24 | 64))  # 2
+d.t("dup", 4, 2, 16, kflag=1, extra=struct.pack("<IIIIII", d.s("y"), 1, 0, d.s("inner"), 2, 32))  # 3  y, then inner.y
+dgen = btf2c.Generator(B.BTF(d.blob()))
+dgen.declarations()
+assert dgen.bitfield_layout == {"dup": (16, [("inner.f", 96, 3)])} and dgen.expected()["dup"] == (16, {"y": 0, "inner": 4}), dgen.bitfield_layout
+ida_types["dup"] = (16, [Udm("y", 0, 32), Udm("inner", 32, 96, [Udm("q", 0, 32), Udm("y", 32, 32), bf("f", 64, 3),
+                                                                bf("__pad_bits_8_3_n2", 67, 29)])])
+assert m.check_bitfield_layouts(dgen, raw_n).startswith("Bitfield layout checked in IDA: 1 structs/unions with bitfields (1 with C ")
+del ida_types["dup"]
+pgen = btf2c.Generator(B.BTF(plain.blob()))
+pgen.declarations()
+assert m.check_bitfield_layouts(pgen, raw_n) is None, "no struct with bitfields: no line"
+# The whole import: the toy struct task (a:3, b:5 at byte 4) as IDA would lay it out, then with b one bit off.
+ida_types.clear()
+ida_types["task"] = (32, [Udm("private_", 0, 32), bf("a", 32, 3), bf("b", 35, 5), Udm("__pad_5", 40, 24), Udm("cb", 64, 64), Udm("__pad_10", 128, 128)])
+del calls[:]
+message = m.run_import()
+assert "Bitfield layout checked in IDA: 1 structs/unions with bitfields (1 with C bitfields) have the BTF's size" in message, message
+assert not [c for c in calls if c[0] == "parse_decl"], calls
+ida_types["task"] = (32, [Udm("private_", 0, 32), bf("a", 32, 3), bf("b", 36, 4), Udm("__pad_5", 40, 24), Udm("cb", 64, 64), Udm("__pad_10", 128, 128)])
+del calls[:]
+message = m.run_import()
+assert "Bitfield layout in IDA does not match the BTF in 1 of 1 structs/unions with bitfields (first: task: b: bit 36 width 4 in " \
+       "IDA, bit 35 width 5 in BTF); 1 of them re-declared with raw bytes" in message, message
+raw_task = [c[1] for c in calls if c[0] == "parse_decl"]
+assert len(raw_task) == 1 and raw_task[0].startswith("struct task {\n") and "__bits_4[1]; /* a:3@0, b:5@3 */" in raw_task[0], raw_task
+assert ida_types["task"] is RAW_IN_IDA["task"]
+assert "Bitfield layout checked in IDA: 1 structs/unions with bitfields (0 with C bitfields)" in m.run_import(bitfields=False)
+kw.user_cancelled = lambda: True  # cancelled: no check
+assert "Bitfield layout" not in m.run_import()
+kw.user_cancelled = lambda: False
+del sys.modules["ida_typeinf"]
+print("stub test OK: bitfield layouts compared with IDA's after the import (fake ida_typeinf); a differing struct re-declared with raw bytes")
 
 # A kernel module (split BTF): its own functions are typed and counted as before. vmlinux's functions are
 # typed only where IDA lists them in an extern segment; the others are not counted as missing.
@@ -648,15 +1104,18 @@ idapro.close_database = lambda save: opened.append(("close", save))
 sys.modules["idapro"] = idapro
 import btf2ida_headless as headless  # noqa: E402
 real_run_import = m.run_import
-m.run_import = lambda vmlinux=None, ask=True, force=False: opened.append(("run", vmlinux, ask, force)) or "summary"
+m.run_import = lambda vmlinux=None, ask=True, force=False, bitfields=True: opened.append(("run", vmlinux, ask, force, bitfields)) or "summary"
 with tempfile.NamedTemporaryFile() as handle:
     assert headless.main([handle.name, "--vmlinux", handle.name, "--no-analysis"]) == 0
-    assert opened == [("open", False), ("run", handle.name, False, False), ("close", True)], opened
+    assert opened == [("open", False), ("run", handle.name, False, False, True), ("close", True)], opened
     del opened[:]
     assert headless.main([handle.name, "--vmlinux", handle.name, "--force"]) == 0
-    assert opened == [("open", True), ("run", handle.name, False, True), ("close", True)], opened
+    assert opened == [("open", True), ("run", handle.name, False, True, True), ("close", True)], opened
     del opened[:]
-    def no_btf(vmlinux=None, ask=True, force=False):
+    assert headless.main([handle.name, "--no-bitfields"]) == 0
+    assert opened == [("open", True), ("run", None, False, False, False), ("close", True)], opened
+    del opened[:]
+    def no_btf(vmlinux=None, ask=True, force=False, bitfields=True):
         raise B.BTFError("no BTF found in the input file or the loaded segments.")
     m.run_import = no_btf
     del opened[:]
@@ -670,7 +1129,7 @@ with tempfile.NamedTemporaryFile() as handle:
 m.run_import = real_run_import
 del sys.modules["idapro"]
 # An unexpected error inside the action becomes one warning, not a traceback dialog.
-def boom():
+def boom(*args, **kwargs):
     raise IndexError("synthetic")
 m.run_import = boom
 del calls[:]
@@ -679,7 +1138,7 @@ warns = [c[1] for c in calls if c[0] == "warn"]
 assert len(warns) == 1 and "unexpected error" in warns[0] and "/btf2ida/issues" in warns[0], calls
 assert any(c[0] == "msg" and "IndexError: synthetic" in c[1] for c in calls), calls
 plugin.term()
-assert ("unreg", "btf2ida:apply") in calls
+assert ("unreg", "btf2ida:apply") in calls and ("unreg", "btf2ida:apply_raw_bitfields") in calls, calls
 # "void f(void)" from BTF: skipped for assembly entry points (memcpy) and where IDA's type already has parameters;
 # a genuine void f(void) with no better type is still applied
 addrs = {"memcpy": 0x7100, "irq_enter_rcu": 0x7200, "has_args": 0x7300, "with_args": 0x7400}

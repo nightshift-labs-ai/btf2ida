@@ -18,7 +18,9 @@ struct demo_ops {
 
 struct demo_device {
   unsigned long long id;
-  unsigned char __bits_8[2]; /* ready:1@0, mode:3@1, refs:12@4 */
+  unsigned short ready:1;
+  unsigned short mode:3;
+  unsigned short refs:12;
   unsigned char __pad_a[2];
   enum demo_state state;
   union {

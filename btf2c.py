@@ -27,6 +27,8 @@ __bitmask __invbf __bin __oct __hex __dec __sbin __soct __shex __udec __float __
 __stroff __custom __invsign __invbits __lzero __tabform
 near far huge interrupt cdecl pascal stdcall fastcall thiscall flat large small""".split())
 MODS = (B.CONST, B.VOLATILE, B.RESTRICT, B.TYPE_TAG)
+# Integer containers for a run of bitfields, by its size in bytes. Runs of other sizes stay raw bytes.
+CONTAINERS = {1: "char", 2: "short", 4: "int", 8: "long long"}
 
 
 def ident(name):
@@ -37,9 +39,14 @@ def ident(name):
 
 
 class Generator:
-    def __init__(self, data, pointer_size=8, bool_name="bool"):
+    def __init__(self, data, pointer_size=8, bool_name="bool", bitfields=True):
         self.btf = data
         self.pointer_size = pointer_size
+        # A group of adjacent bitfields is cut, where no bitfield crosses a byte boundary, into runs of 1, 2, 4 or 8
+        # bytes that become C bitfields filling one integer of that size exactly (see bitfield_runs; bitfields=False
+        # keeps every group as raw bytes, the earlier form; tests/check_bitfields.py compares the two).
+        # Big-endian BTF keeps raw bytes: bitfields were only checked on little-endian layouts.
+        self.bitfields = bitfields and data.endian == "<"
         self.tags = {}
         self.taken = set()
         self.done = set()
@@ -48,9 +55,17 @@ class Generator:
         self.body = []
         self.sizes = {}
         self.constants = set()
-        self.stats = {"structs": 0, "unions": 0, "empty": 0, "base_only": 0, "opaque_members": 0, "enums": 0, "typedefs": 0, "bitfields_as_storage": 0, "dropped_members": 0}
+        self.stats = {"structs": 0, "unions": 0, "empty": 0, "base_only": 0, "opaque_members": 0, "enums": 0, "typedefs": 0, "bitfields": 0, "bitfield_integers": 0, "bitfields_as_storage": 0, "bitfield_raw_runs": 0, "dropped_members": 0}
         self.dropped = []
         self.scope = 0
+        # What IDA should show for each emitted struct/union that has a group of bitfields in its own scope or in an
+        # inline anonymous member (written as C bitfields or as raw bytes): {tag: (size, [(member path, bit offset,
+        # width)] of its named C bitfields, empty when all are raw bytes)}. Bit offsets count from the start of the
+        # tagged type; a named inline member adds "name." to the path. The plugin compares it with IDA's layout
+        # after the import (btf2ida_entry.check_bitfield_layouts).
+        self.bitfield_layout = {}
+        self.struct_text = {}  # {tag: its declaration}, to re-declare one struct (with raw bytes) in IDA
+        self.bf_base, self.bf_prefix, self.bf_fields, self.bf_any = 0, "", [], False
         self._typedef_names = None
         self.bool_name = bool_name  # the plugin passes _BOOL1 when IDA's bool is not 1 byte
         for t in data:  # Struct, union, enum tags and typedefs share one namespace in IDA.
@@ -286,6 +301,84 @@ class Generator:
             return offset + ((t.data >> 16) & 0xFF), t.data & 0xFF
         return offset, 0
 
+    def bitfield_signed(self, type_id):
+        """True or False for a signed or unsigned bitfield of this BTF type; None when it is not an integer or enum.
+
+        pahole before 1.17 or so encodes `signed char` with no encoding bits (Debian 11 5.10, Android GKI 6.1), so that
+        name counts as signed too. The INT_BOOL test is defensive: the kernel's BTF verifier allows only one encoding
+        bit, but btf2c also reads files no kernel has checked."""
+        t = self.resolve(type_id)
+        if t is not None and t.kind == B.INT:
+            encoding = t.data >> 24
+            return bool(encoding & B.INT_SIGNED or t.name == "signed char") and not encoding & B.INT_BOOL
+        if t is not None and t.kind in (B.ENUM, B.ENUM64):
+            return bool(t.kflag)  # BTF marks an enum with negative values as signed (kflag, Linux 6.0+)
+        return None
+
+    def convertible(self, fields, lo, hi):
+        """True when the bitfields of bytes lo..hi can be C bitfields filling one integer of that size: 1, 2, 4 or 8
+        bytes, integer or enum types only, no two overlapping (sorted by bit offset)."""
+        if hi - lo not in CONTAINERS:
+            return False
+        at = lo * 8
+        for _, bit, width, type_id in fields:
+            if self.bitfield_signed(type_id) is None or bit < at:
+                return False
+            at = bit + width
+        return True
+
+    def bitfield_runs(self, fields, start, end):
+        """A group of adjacent bitfields (bytes start..end) as runs [(lo, hi, its bitfields, as C bitfields?)].
+
+        `fields` are (name, bit offset, width, BTF type) sorted by bit offset. Runs are cut at byte boundaries that no
+        bitfield crosses; a run that is convertible() becomes one integer of C bitfields, any other stays raw bytes.
+        Of all the ways to cut, the one with the most bitfields as C bitfields wins, then the one that puts the most
+        bitfields in an integer of their declared type's size at an offset aligned to it (the kernel's own storage
+        unit: sk_buff's 28 __u8 flags from tstamp_type on, bytes 1-4, get four unsigned chars, not one unsigned int
+        at an odd offset), then the one with the fewest runs. net_device's
+        priv_flags:32 + lltx:1 (5 bytes) becomes an unsigned int and an unsigned char; a 20-bit field over 3 bytes
+        still keeps its run raw."""
+        if not self.bitfields:
+            return [(start, end, fields, False)]
+        cuts = [at for at in range(start, end + 1) if not any(bit < at * 8 < bit + width for _, bit, width, _ in fields)]
+        best = {start: ((0, 0, 0), [])}  # cut -> (score, runs up to it); score: (converted, in their own unit, -runs)
+        for index, lo in enumerate(cuts):
+            if lo not in best:
+                continue
+            (done, own, runs), plan = best[lo]
+            for hi in cuts[index + 1:]:
+                part = [f for f in fields if lo * 8 <= f[1] < hi * 8]
+                ok = self.convertible(part, lo, hi)
+                natural = sum(self.resolve(f[3]).size == hi - lo for f in part) if ok and lo % (hi - lo) == 0 else 0
+                score = (done + (len(part) if ok else 0), own + natural, runs - 1)
+                if hi not in best or score > best[hi][0]:
+                    best[hi] = (score, plan + [(lo, hi, part, ok)])
+        return best[end][1]
+
+    def bitfield_lines(self, fields, lo, hi, indent, tail):
+        """A convertible() run as C bitfields that fill an integer of its size exactly.
+
+        Every member, and a named filler for each unused run of bits, has a container type of that size (signed
+        for signed members, else unsigned), so the container is full and, under #pragma pack(1) / PT_PAK1, the
+        next member starts right after it with the GCC and the MSVC bitfield rules alike (checked with gcc and
+        gcc -mms-bitfields by tests/check_bitfields.py; IDA's own layout is not checked)."""
+        unit = CONTAINERS[hi - lo]
+        lines, at = [], lo * 8
+
+        def filler(upto):
+            lines.append("%sunsigned %s __pad_bits_%x_%d%s:%d;" % (indent, unit, lo, at - lo * 8, tail, upto - at))
+
+        for name, bit, width, type_id in fields:
+            if not name:  # an unnamed bitfield is left to the filler
+                continue
+            if bit > at:
+                filler(bit)
+            lines.append("%s%s %s %s:%d;" % (indent, "signed" if self.bitfield_signed(type_id) else "unsigned", unit, ident(name), width))
+            at = bit + width
+        if at < hi * 8:
+            filler(hi * 8)
+        return lines
+
     def deps(self, t):
         for _, m_type, _ in t.data:
             inner = self.strip(m_type)
@@ -312,8 +405,13 @@ class Generator:
             self.stats["base_only"] += 1
             return
         self.stats["unions" if t.kind == B.UNION else "structs"] += 1
+        self.bf_base, self.bf_prefix, self.bf_fields, self.bf_any = 0, "", [], False
         lines = self.members(t, "  ")
-        self.body.append("%s %s {\n%s\n};\n" % (keyword, self.tags[t.id], "\n".join(lines)))
+        text = "%s %s {\n%s\n};\n" % (keyword, self.tags[t.id], "\n".join(lines))
+        self.body.append(text)
+        self.struct_text[self.tags[t.id]] = text
+        if self.bf_any:
+            self.bitfield_layout[self.tags[t.id]] = (t.size, self.bf_fields)
 
     def nested(self, t):
         return t is not None and t.kind in (B.STRUCT, B.UNION) and not t.name
@@ -338,8 +436,8 @@ class Generator:
                 return None
         return None
 
-    def member(self, name, m_type, indent):
-        """Lines declaring one non-bitfield member."""
+    def member(self, name, m_type, indent, bit=0):
+        """Lines declaring one non-bitfield member (at `bit` in its parent)."""
         opaque = self.opaque(m_type)
         if opaque:  # its layout is not in the BTF: keep the size, name the type in a comment
             self.stats["opaque_members"] += 1
@@ -349,7 +447,11 @@ class Generator:
         if self.nested(t):
             keyword = "union" if t.kind == B.UNION else "struct"
             label = ident(name) if name else ""
-            return ["%s%s {" % (indent, keyword)] + self.members(t, indent + "  ") + ["%s}%s;" % (indent, " " + label if label else "")]
+            outer = self.bf_base, self.bf_prefix
+            self.bf_base, self.bf_prefix = self.bf_base + bit, self.bf_prefix + (label + "." if label else "")
+            inner = self.members(t, indent + "  ")
+            self.bf_base, self.bf_prefix = outer
+            return ["%s%s {" % (indent, keyword)] + inner + ["%s}%s;" % (indent, " " + label if label else "")]
         return ["%s%s;" % (indent, self.decl(m_type, ident(name) if name else "__anon"))]
 
     def members(self, t, indent):
@@ -366,7 +468,7 @@ class Generator:
                         self.stats["bitfields_as_storage"] += 1
                     continue
                 largest = max(largest, size)
-                out.extend(self.member(name, m_type, indent))
+                out.extend(self.member(name, m_type, indent))  # at bit 0, as C places every union member
             if largest < t.size or not out:
                 out.append("%sunsigned char __raw%s[%d];" % (indent, tail, max(t.size, 1)))
             return out
@@ -377,23 +479,33 @@ class Generator:
             name, m_type, offset = items[index]
             bit, width = self.member_bits(t, offset, m_type)
             if width:
-                start, end, labels = bit // 8, (bit + width + 7) // 8, []
+                start, end, fields = bit // 8, (bit + width + 7) // 8, []
                 while index < len(items):
                     other = self.member_bits(t, items[index][2], items[index][1])
                     if not other[1] or other[0] // 8 > end:
                         break
                     end = max(end, (other[0] + other[1] + 7) // 8)
-                    labels.append("%s:%d@%d" % (items[index][0] or "?", other[1], other[0] - start * 8))
+                    fields.append((items[index][0], other[0], other[1], items[index][1]))
                     index += 1
-                self.stats["bitfields_as_storage"] += len(labels)
-                if start >= cursor:
-                    if start > cursor:
-                        out.append("%sunsigned char __pad_%x%s[%d];" % (indent, cursor, tail, start - cursor))
-                    out.append("%sunsigned char __bits_%x%s[%d]; /* %s */" % (indent, start, tail, end - start, ", ".join(labels)))
-                    cursor = end
-                else:
-                    self.stats["dropped_members"] += len(labels)
-                    self.dropped.append((t.name, labels))
+                if start < cursor:
+                    self.stats["dropped_members"] += len(fields)
+                    self.dropped.append((t.name, ["%s:%d@%d" % (f[0] or "?", f[2], f[1] - start * 8) for f in fields]))
+                    continue
+                if start > cursor:
+                    out.append("%sunsigned char __pad_%x%s[%d];" % (indent, cursor, tail, start - cursor))
+                self.bf_any = True
+                for lo, hi, part, ok in self.bitfield_runs(fields, start, end):
+                    if ok:
+                        self.stats["bitfields"] += len(part)
+                        self.stats["bitfield_integers"] += 1
+                        out.extend(self.bitfield_lines(part, lo, hi, indent, tail))
+                        self.bf_fields.extend((self.bf_prefix + ident(f[0]), self.bf_base + f[1], f[2]) for f in part if f[0])
+                    else:  # raw storage bytes, the bitfields named in a comment
+                        self.stats["bitfields_as_storage"] += len(part)
+                        self.stats["bitfield_raw_runs"] += 1
+                        labels = ", ".join("%s:%d@%d" % (f[0] or "?", f[2], f[1] - lo * 8) for f in part)
+                        out.append("%sunsigned char __bits_%x%s[%d]; /* %s */" % (indent, lo, tail, hi - lo, labels))
+                cursor = end
                 continue
             index += 1
             start = bit // 8
@@ -407,7 +519,7 @@ class Generator:
                 continue
             if start > cursor:
                 out.append("%sunsigned char __pad_%x%s[%d];" % (indent, cursor, tail, start - cursor))
-            out.extend(self.member(name, m_type, indent))
+            out.extend(self.member(name, m_type, indent, bit))
             cursor = start + size
         if cursor < t.size:
             out.append("%sunsigned char __pad_%x%s[%d];" % (indent, cursor, tail, t.size - cursor))
@@ -483,6 +595,8 @@ def main(argv=None):
     parser.add_argument("--pointer-size", type=int, default=8)
     parser.add_argument("--prototypes", help="also write one prototype per line here")
     parser.add_argument("--asserts", help="also write a C file of _Static_assert layout checks")
+    parser.add_argument("--no-bitfields", action="store_true",
+                        help="keep every group of bitfields as raw storage bytes with the names in a comment (the earlier form)")
     args = parser.parse_args(argv)
     try:
         with open(args.input, "rb") as handle:
@@ -499,7 +613,7 @@ def main(argv=None):
         sys.exit("btf2c: %s: %s (add --base /path/to/vmlinux or /sys/kernel/btf/vmlinux)" % (args.input, error))
     except (B.BTFError, OSError) as error:
         sys.exit("btf2c: %s" % error)
-    generator = Generator(data, args.pointer_size)
+    generator = Generator(data, args.pointer_size, bitfields=not args.no_bitfields)
     text = header(generator)
     with open(args.output, "w", encoding="utf-8") as handle:
         handle.write(text)

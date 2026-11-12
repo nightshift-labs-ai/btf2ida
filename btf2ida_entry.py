@@ -521,7 +521,7 @@ def apply_prototypes(prototypes, progress=None, imported=()):
 
 
 def report(source, generator, failed, result, named=0, cancelled=False, no_prototypes_32=False, no_own_btf=False,
-           analysis_pending=False):
+           analysis_pending=False, bitfield_note=None, layout_note=None):
     stats = generator.stats
     lines = ["CANCELLED: the import stopped early, so only part of what is listed below reached the database."] if cancelled else []
     if analysis_pending:
@@ -530,6 +530,12 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
         "BTF from %s: %d types" % (source, generator.btf.count),
         "Declarations sent to IDA: %d structs, %d unions, %d enums, %d typedefs (%d rejected by IDA); "
         "%d empty structs/unions as forward declarations only" % (stats["structs"], stats["unions"], stats["enums"], stats["typedefs"], len(failed), stats["empty"]),
+    ]
+    if bitfield_note:
+        lines.append(bitfield_note)
+    if layout_note:
+        lines.append(layout_note)
+    lines += [
         "Named %d exported functions from __ksymtab (the database had no name there)" % named,
         "Prototypes applied to %d functions; rejected by IDA %d; not in this database %d; name is not a function start %d" % (result["applied"], len(result["rejected"]), result["absent"], result["not_function"]),
     ]
@@ -587,6 +593,138 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
     if rejected:
         lines.append("Prototypes rejected by IDA (first %d of %d): %s" % (min(3, len(rejected)), len(rejected), ", ".join(rejected[:3])))
     return "\n".join(lines)
+
+
+def bitfield_order_problem():
+    """None when IDA allocates bitfields from the least significant bit in this database, as btf2c's C bitfields
+    need (BTF counts bit offsets that way); else why not. IDA follows the database's byte order (SDK ida.hpp:
+    inf_get_bf_order() returns BFO_MSB_TO_LSB when inf_is_be()); IDA 9.5 has inf_get_bf_order, older ones only
+    inf_is_be. Checked only against fake ida_ida modules."""
+    try:
+        if ida_ida.inf_is_be():
+            return "this database is big-endian, so IDA allocates bitfields from the most significant bit"
+        order = getattr(ida_ida, "inf_get_bf_order", None)  # IDA 9.5+
+        if order is not None and order() != getattr(ida_ida, "BFO_LSB_TO_MSB", 1):
+            return "IDA allocates bitfields from the most significant bit in this database"
+    except Exception as error:  # noqa: BLE001  (no answer: raw bytes are right in either order)
+        return "btf2ida could not read the database's bitfield order (%s)" % error
+    return None
+
+
+def ida_layout(tag):
+    """(size, {path: (bit offset, width)} of its bitfields, {name: bit offset} of its other direct members) of the
+    local type `tag` as IDA laid it out, or None when IDA has no such type or cannot list its members. Bitfields in
+    inline anonymous structs and unions are found too, at their bit offset in `tag`; a named one adds "name." to the
+    path, as in btf2c.Generator.bitfield_layout. IDA marks an inline member anonymous by a name that starts with "__"
+    (udm_t.is_anonymous_udm in typeinf.hpp), so a named inline member called "__x" would lose its "__x." here and its
+    bitfields would count as different (no such member holds bitfields in the kernels checked)."""
+    import ida_typeinf
+    tif = ida_typeinf.tinfo_t()
+    if not tif.get_named_type(ida_typeinf.get_idati(), tag):
+        return None
+    bits, plain = {}, {}
+
+    def walk(t, base, prefix, top):
+        udt = ida_typeinf.udt_type_data_t()
+        if not t.get_udt_details(udt):
+            return False
+        for udm in udt:  # udm_t offsets and sizes are in bits
+            if udm.is_bitfield():
+                bits[prefix + udm.name] = (base + udm.offset, udm.size)
+                continue
+            anonymous = udm.is_anonymous_udm()
+            if top and not anonymous:
+                plain[udm.name] = udm.offset
+            if udm.type.is_anonymous_udt() and not walk(udm.type, base + udm.offset, prefix if anonymous else prefix + udm.name + ".", False):
+                return False
+        return True
+
+    return (tif.get_size(), bits, plain) if walk(tif, 0, "", True) else None
+
+
+def layout_difference(size, fields, members, found):
+    """Why IDA's layout `found` (from ida_layout) is not the one btf2c declared from the BTF, or None. fields: [(path,
+    bit offset, width)] of the named C bitfields; members: {name: byte offset} of the other direct members
+    (Generator.expected). A named bitfield in IDA where btf2c declared raw bytes is a difference too (for example
+    one kept from an earlier import with C bitfields); the fillers (__pad_bits_*) are not compared."""
+    ida_size, bits, plain = found
+    if ida_size != size:
+        return "size %s in IDA, %d in BTF" % (ida_size, size)
+    for path, bit, width in fields:
+        if bits.get(path) != (bit, width):
+            where = "bit %d width %d" % bits[path] if path in bits else "no such bitfield"
+            return "%s: %s in IDA, bit %d width %d in BTF" % (path, where, bit, width)
+    declared = {path for path, _, _ in fields}
+    extra = sorted(p for p in bits if p not in declared and not p.rsplit(".", 1)[-1].startswith("__pad_bits_"))
+    if extra:
+        return "%s: a bitfield in IDA, raw bytes in the declaration" % extra[0]
+    for name, offset in sorted(members.items()):
+        if name in plain and plain[name] != offset * 8:
+            return "%s: bit %d in IDA, byte %d in BTF" % (name, plain[name], offset)
+    return None
+
+
+def replace_type(tag, text):
+    """Re-declare the local type `tag` from `text` (one struct or union) in place; True when IDA took it."""
+    import ida_typeinf
+    tif = ida_typeinf.tinfo_t()
+    if ida_typeinf.parse_decl(tif, ida_typeinf.get_idati(), text, ida_typeinf.PT_SIL | ida_typeinf.PT_TYP | idc.PT_PAK1) is None:
+        return False
+    return tif.set_named_type(ida_typeinf.get_idati(), tag, ida_typeinf.NTF_REPLACE) == ida_typeinf.TERR_OK
+
+
+def check_bitfield_layouts(generator, raw_generator):
+    """After the import: compare IDA's layout of every struct/union with bitfields (generator.bitfield_layout) with
+    what btf2c declared from the BTF: its size, each C bitfield's bit offset and width, no other named bitfield, and
+    the offsets of its direct members. One that differs is re-declared from raw_generator() (a Generator with
+    bitfields=False: raw bytes, the names in a comment) and checked again. Returns the summary line, or None when no
+    struct has bitfields. Checked only against fake ida_typeinf modules: real IDA was not run."""
+    layouts = generator.bitfield_layout
+    if not layouts:
+        return None
+    try:
+        import ida_typeinf  # noqa: F401  (part of IDAPython)
+    except ImportError:
+        return "Bitfield layout not checked in IDA (no ida_typeinf module)"
+    ida_kernwin.replace_wait_box("BTF2IDA: checking the bitfield layouts")
+    members = generator.expected()
+    differ, missing, with_c = [], 0, 0
+    for tag, (size, fields) in sorted(layouts.items()):
+        try:
+            found = ida_layout(tag)
+        except Exception:  # noqa: BLE001  (no answer from IDA: counted as not found)
+            found = None
+        if found is None:
+            missing += 1  # a declaration IDA rejected (counted above), or a type it cannot list
+            continue
+        with_c += bool(fields)
+        why = layout_difference(size, fields, members.get(tag, (size, {}))[1], found)
+        if why:
+            differ.append((tag, size, why))
+    checked = len(layouts) - missing
+    not_found = "; %d not found in IDA's local types" % missing if missing else ""
+    if not differ:
+        return "Bitfield layout checked in IDA: %d structs/unions with bitfields (%d with C bitfields) have the BTF's " \
+               "size, bitfield positions and member offsets%s" % (checked, with_c, not_found)
+    raw = raw_generator()
+    if not raw.struct_text:
+        raw.declarations()
+    replaced = 0
+    for tag, size, _ in differ:
+        try:
+            if tag in raw.struct_text and replace_type(tag, raw.struct_text[tag]):
+                found = ida_layout(tag)
+                replaced += found is not None and layout_difference(size, [], members.get(tag, (size, {}))[1], found) is None
+        except Exception:  # noqa: BLE001  (counted as not replaced)
+            pass
+    line = "Bitfield layout in IDA does not match the BTF in %d of %d structs/unions with bitfields (first: %s: %s); " \
+           "%d of them re-declared with raw bytes (names in a comment), and IDA then lays them out as the BTF does" % (
+               len(differ), checked, differ[0][0], differ[0][2], replaced)
+    if replaced < len(differ):
+        line += "; %d could not be: please report it at %s" % (len(differ) - replaced, ISSUES_URL)
+        if generator.bitfields:
+            line += " (raw bytes for every struct: %s)" % RAW_ACTION_HINT
+    return line + not_found
 
 
 def bool_name():
@@ -650,7 +788,9 @@ def external_btf(vmlinux, ask):
         raise B.BTFError("the chosen file %s has no usable BTF (%s)" % (path, error))
 
 
-def run_import(vmlinux=None, ask=True, force=False):
+def run_import(vmlinux=None, ask=True, force=False, bitfields=True):
+    """The whole import; returns the summary. bitfields=False keeps every bitfield as raw bytes (the menu item
+    LABEL_RAW, headless --no-bitfields)."""
     # In the IDA window only: headless, idalib has already waited for the analysis, or --no-analysis skipped it.
     # With auto-analysis turned off by the user, its queues can stay full: that is not "not finished yet".
     analysis_pending = ask and ida_ida.inf_is_auto_enabled() and not ida_auto.auto_is_ok()
@@ -678,7 +818,15 @@ def run_import(vmlinux=None, ask=True, force=False):
         else:
             source = "%s (a separate file: btf2ida cannot check that it is for this kernel build)" % chosen
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4
-    generator = btf2c.Generator(data, pointer_size, bool_name=bool_name())
+    order_problem = bitfield_order_problem()
+    generator = btf2c.Generator(data, pointer_size, bool_name=bool_name(), bitfields=bitfields and order_problem is None)
+    bitfield_note = None
+    if not bitfields:
+        bitfield_note = "Bitfields kept as raw bytes (names in a comment), as asked (%s)" % RAW_ACTION_HINT
+    elif order_problem:
+        bitfield_note = "Bitfields kept as raw bytes (names in a comment): %s, and BTF counts them from the least significant one" % order_problem
+    elif data.endian != "<":
+        bitfield_note = "Bitfields kept as raw bytes (names in a comment): the BTF is big-endian, where btf2c's C bitfields have not been checked"
     # 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate; other
     # 32-bit kernels (ARM, MIPS, RISC-V) use their standard C calling convention. Unknown processor: treat as x86.
     procname = (getattr(ida_ida, "inf_get_procname", lambda: None)() or "").lower()
@@ -701,12 +849,17 @@ def run_import(vmlinux=None, ask=True, force=False):
         return ida_kernwin.user_cancelled()
 
     failed = import_in_batches(declarations, parse_batch, progress=types_progress)
+    layout_note = None
+    if not ida_kernwin.user_cancelled():  # does IDA lay out the bitfields as declared? (if not: raw bytes there)
+        layout_note = check_bitfield_layouts(generator, lambda: generator if not generator.bitfields else btf2c.Generator(
+            data, pointer_size, bool_name=generator.bool_name, bitfields=False))
     named = name_exports() if prototypes and not ida_kernwin.user_cancelled() else 0
     result = apply_prototypes(prototypes, proto_progress, imported)
     if data.base is not None or source == SOURCE_NO_OWN_BTF:
         result["undefined"] = undefined_in_database()
     return report(source, generator, failed, result, named, cancelled=bool(ida_kernwin.user_cancelled()),
-                  no_prototypes_32=regparm, no_own_btf=source == SOURCE_NO_OWN_BTF, analysis_pending=analysis_pending)
+                  no_prototypes_32=regparm, no_own_btf=source == SOURCE_NO_OWN_BTF, analysis_pending=analysis_pending,
+                  bitfield_note=bitfield_note, layout_note=layout_note)
 
 
 
@@ -749,6 +902,10 @@ def wait_for_analysis():
 
 
 class ApplyBTF(ida_kernwin.action_handler_t):
+    def __init__(self, bitfields=True):
+        ida_kernwin.action_handler_t.__init__(self)
+        self.bitfields = bitfields  # False: the "(bitfields as raw bytes)" menu item
+
     @guarded
     def activate(self, ctx):
         if not wait_for_analysis():
@@ -756,7 +913,7 @@ class ApplyBTF(ida_kernwin.action_handler_t):
         problem = None
         ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
         try:
-            message = run_import()
+            message = run_import(bitfields=self.bitfields)
         except B.BTFError as error:
             message = None
             problem = str(error)
@@ -775,6 +932,11 @@ class ApplyBTF(ida_kernwin.action_handler_t):
 
 ACTION = "btf2ida:apply"
 LABEL = "BTF2IDA: Apply kernel types and prototypes"
+# The same import with every bitfield as raw storage bytes (names in a comment), the form before C bitfields: for a
+# database where IDA lays out the C bitfields differently from the BTF (headless: --no-bitfields).
+ACTION_RAW = "btf2ida:apply_raw_bitfields"
+LABEL_RAW = LABEL + " (bitfields as raw bytes)"
+RAW_ACTION_HINT = "menu item '%s', headless --no-bitfields" % LABEL_RAW
 
 
 class BTF2IDA(ida_idaapi.plugin_t):
@@ -785,9 +947,10 @@ class BTF2IDA(ida_idaapi.plugin_t):
     wanted_hotkey = ""
 
     def init(self):
-        ida_kernwin.register_action(ida_kernwin.action_desc_t(ACTION, LABEL, ApplyBTF()))
-        if not ida_kernwin.attach_action_to_menu("Edit/Plugins/", ACTION, ida_kernwin.SETMENU_APP):
-            ida_kernwin.msg("[BTF2IDA] could not add the menu item\n")
+        for action, label, bitfields in ((ACTION, LABEL, True), (ACTION_RAW, LABEL_RAW, False)):
+            ida_kernwin.register_action(ida_kernwin.action_desc_t(action, label, ApplyBTF(bitfields)))
+            if not ida_kernwin.attach_action_to_menu("Edit/Plugins/", action, ida_kernwin.SETMENU_APP):
+                ida_kernwin.msg("[BTF2IDA] could not add the menu item %s\n" % label)
         return ida_idaapi.PLUGIN_KEEP
 
     def run(self, arg):
@@ -795,6 +958,7 @@ class BTF2IDA(ida_idaapi.plugin_t):
 
     def term(self):
         ida_kernwin.unregister_action(ACTION)
+        ida_kernwin.unregister_action(ACTION_RAW)
 
 
 def PLUGIN_ENTRY():
