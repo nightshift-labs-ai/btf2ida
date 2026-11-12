@@ -473,7 +473,8 @@ def load(blob, base=None):
         except (NeedsBase, BaseMismatch):
             raise
         except BTFError:
-            pass
+            if base is not None:  # raw split BTF on a base: keep the parser's reason
+                raise
     section = elf_section(blob)
     if section:
         distilled = elf_section(blob, b".BTF.base")

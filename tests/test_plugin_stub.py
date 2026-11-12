@@ -410,6 +410,17 @@ with tempfile.TemporaryDirectory() as folder:
         pass
     asked = [c for c in calls if c[0] == "ask_yn"]
     assert len(asked) == 1 and "6.17.0-41%%s%%n" in asked[0][2] and not re.search(r"(?<!%)%(?!%)", asked[0][2].replace("%%", "")), asked
+    with open(nobtf, "wb") as handle:  # a '%' in the module's own vermagic too
+        handle.write(tiny_rel([b".gnu.linkonce.this_module", (b".modinfo", b"license=GPL\0vermagic=6.1.0-x%s%n SMP \0")]))
+    del calls[:]
+    try:
+        m.run_import(bannered)
+    except B.BTFError:
+        pass
+    asked = [c for c in calls if c[0] == "ask_yn"]
+    assert len(asked) == 1 and "6.1.0-x%%s%%n" in asked[0][2] and not re.search(r"(?<!%)%(?!%)", asked[0][2].replace("%%", "")), asked
+    with open(nobtf, "wb") as handle:
+        handle.write(tiny_rel([b".gnu.linkonce.this_module", (b".modinfo", b"license=GPL\0vermagic=6.1.0-x SMP mod_unload \0")]))
     del calls[:]
     message = m.run_import(paths["vmlinux.btf"])  # raw BTF, no banner: no question, the "Not checked" line as before
     assert not [c for c in calls if c[0] == "ask_yn"] and "Used anyway" not in message and "Not checked" in message, message
@@ -430,6 +441,40 @@ with tempfile.TemporaryDirectory() as folder:
         assert "does not match the chosen vmlinux (string offset out of range)" in str(error), error
     finally:
         B.load = real_load
+    # The same through the real parser and the whole flow: a module whose string references overrun a real, shorter
+    # base is refused as a mismatch (one dialog, no fall-through to the whole-kernel one), in an ELF .BTF section and
+    # as raw split BTF.
+    short, elf_mod = os.path.join(folder, "short.btf"), os.path.join(folder, "mod-elf.ko")
+    with open(short, "wb") as handle:
+        handle.write(base_b.blob())
+    with open(elf_mod, "wb") as handle:
+        handle.write(tiny_rel([b".gnu.linkonce.this_module", (b".BTF", mb.blob())]))
+    for module_file in (elf_mod, paths["mod.ko"]):
+        nalt.get_input_file_path = lambda module_file=module_file: module_file
+        for ask in (False, True):
+            del calls[:]
+            kw.ask_file = lambda save, default, prompt: calls.append(("ask_file", prompt)) or short
+            try:
+                m.run_import(None if ask else short, ask=ask)
+                raise AssertionError("an overrunning base was accepted")
+            except B.BaseMismatch as error:
+                assert "does not match the chosen vmlinux (string offset out of range)" in str(error), (module_file, error)
+            assert len([c for c in calls if c[0] == "ask_file"]) == (1 if ask else 0), calls
+    # Damage in the module's own BTF on the right vmlinux is not blamed on the vmlinux.
+    damaged = Split(vb)
+    damaged.t("bad_kind", 30, 0, 0)
+    for label, blob in (("damaged-elf.ko", tiny_rel([b".gnu.linkonce.this_module", (b".BTF", damaged.blob())])),
+                        ("damaged.btf", damaged.blob())):
+        nalt.get_input_file_path = lambda path=os.path.join(folder, label): path
+        with open(os.path.join(folder, label), "wb") as handle:
+            handle.write(blob)
+        try:
+            m.run_import(paths["vmlinux.btf"], ask=False)
+            raise AssertionError("a damaged module BTF was accepted")
+        except B.BTFError as error:
+            assert not isinstance(error, B.BaseMismatch) and "does not match" not in str(error), (label, error)
+            assert "this module's BTF could not be read on the chosen vmlinux (unknown BTF kind 30" in str(error), (label, error)
+    kw.ask_file = lambda save, default, prompt: paths["vmlinux.btf"]
     nalt.get_input_file_path = lambda: nobtf
     kw.ask_yn = lambda deflt, text: calls.append(("ask_yn", deflt, text)) or kw.ASKBTN_NO
     # A memory image can also hold older banners in logs (journald, dmesg), in any order: one that matches is enough.

@@ -72,6 +72,9 @@ def import_in_batches(declarations, parse, batch=1000, progress=None):
     return failed
 
 
+OVERRUN = ("string offset out of range", "corrupt BTF: type")  # parser errors of split BTF that overruns its base
+
+
 def from_input(base):
     """(BTF or None, whether the whole input file was searched)."""
     path = ida_nalt.get_input_file_path()
@@ -87,8 +90,10 @@ def from_input(base):
         except (B.NeedsBase, B.BaseMismatch):
             raise
         except B.BTFError as error:
-            if base is not None:  # the module's split BTF on the chosen vmlinux: ids or strings beyond that base
+            if base is not None and str(error).startswith(OVERRUN):  # ids or strings beyond the chosen vmlinux's
                 raise B.BaseMismatch("this module's BTF does not match the chosen vmlinux (%s)" % error)
+            if base is not None:  # damage in the module's own BTF: do not blame the vmlinux
+                raise B.BTFError("this module's BTF could not be read on the chosen vmlinux (%s)" % error)
             return None, True
         finally:
             blob.close()
