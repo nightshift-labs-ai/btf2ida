@@ -518,7 +518,8 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
                              "report your IDA version at %s." % ISSUES_URL)
     lines += [
         "Left untyped on purpose: %d compiler clones (.isra, .constprop, .part, .cold), their ABI may differ" % result["clones"],
-        "Kept as they were: %d functions that already had a user-set type" % result["kept"],
+        "Kept as they were: %d functions that already had a user-set type btf2ida has no record of (for example set by hand, or by "
+        "btf2ida 0.1.20 or earlier)" % result["kept"],
     ]
     if result.get("retyped"):
         lines.append("Re-typed: %d functions whose prototype an earlier btf2ida run had set (unchanged since)"
