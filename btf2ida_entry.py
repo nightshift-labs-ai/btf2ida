@@ -73,30 +73,38 @@ def import_in_batches(declarations, parse, batch=1000, progress=None):
 
 
 def from_input(base):
+    """(BTF or None, whether the whole input file was searched)."""
     path = ida_nalt.get_input_file_path()
     if not path or not os.path.isfile(path):
-        return None
+        return None, False
     with open(path, "rb") as handle:
         try:  # mmap: the input may be a many-gigabyte memory image
             blob = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
         except (OSError, ValueError):
-            return None
+            return None, False
         try:
-            return B.load(blob, base=base)
+            return B.load(blob, base=base), True
         except (B.NeedsBase, B.BaseMismatch):
             raise
         except B.BTFError as error:
             if base is not None:  # the module's split BTF on the chosen vmlinux: ids or strings beyond that base
                 raise B.BaseMismatch("this module's BTF does not match the chosen vmlinux (%s)" % error)
-            return None
+            return None, True
         finally:
             blob.close()
 
 
-def from_segments(base):
+SEGMENT_LIMIT = 256 << 20  # get_bytes copies a whole segment into memory; a bigger one is a memory image
+
+
+def from_segments(base, input_searched=False):
+    """The largest BTF in the loaded segments. Once from_input has searched the input file (through mmap), segments
+    over SEGMENT_LIMIT are skipped: copying a many-gigabyte memory image again could exhaust memory."""
     best = None
     for start in idautils.Segments():
         end = idc.get_segm_end(start)
+        if input_searched and end - start > SEGMENT_LIMIT:
+            continue
         blob = ida_bytes.get_bytes(start, end - start)
         if not blob:
             continue
@@ -192,10 +200,10 @@ def find_btf(vmlinux=None, ask=True, force=False):
     base = None
     for attempt in range(2):
         try:
-            found = from_input(base)
+            found, searched = from_input(base)
             if found is not None:
                 return found, "the input file"
-            found = from_segments(base)
+            found = from_segments(base, searched)
             if found is None and base is None and input_is_module():
                 return vmlinux_for_module(vmlinux, ask, force), SOURCE_NO_OWN_BTF
             return found, "the loaded segments"

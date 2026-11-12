@@ -518,6 +518,27 @@ with tempfile.TemporaryDirectory() as folder:
         except B.BTFError as error:
             assert str(error).startswith("cannot read the chosen file"), error
     os.chmod(locked, 0o600)
+    # A memory image of a kernel without BTF: from_input searched the file through mmap, so a segment over
+    # SEGMENT_LIMIT is not copied again with get_bytes; the run reaches the "choose BTF" dialog.
+    big, real_get_bytes, real_segm_end = 4 << 30, dbytes.get_bytes, idc.get_segm_end
+    def limited(ea, size):
+        assert size <= m.SEGMENT_LIMIT, "copied a %d-byte segment" % size
+        return real_get_bytes(ea, size)
+    dbytes.get_bytes, idc.get_segm_end, autos.Segments = limited, (lambda ea: ea + big), (lambda: [0x4000])
+    nalt.get_input_file_path = lambda: plain
+    del calls[:]
+    kw.ask_file = lambda save, default, prompt: calls.append(("ask_file", prompt)) and None
+    try:
+        m.run_import(None, ask=True)
+        raise AssertionError("no BTF and no file chosen must fail")
+    except B.BTFError as error:
+        assert "BTFHub" in str(error) and [c[1] for c in calls if c[0] == "ask_file"] == [m.EXTERNAL_PROMPT], (error, calls)
+    # The input file is not on disk (a database moved to another machine): nothing was searched, so the big segment
+    # is still read, and the BTF in it is found.
+    dbytes.get_bytes = lambda ea, size: raw_vmlinux
+    nalt.get_input_file_path = lambda: os.path.join(folder, "moved-away.img")
+    assert "BTF from the loaded segments" in m.run_import(None, ask=False)
+    dbytes.get_bytes, idc.get_segm_end, autos.Segments = real_get_bytes, real_segm_end, (lambda: [])
     kw.ask_file = no_dialog
     autos.Segments = whole_segments
     nalt.get_input_file_path = lambda: paths["mod.ko"]
