@@ -23,7 +23,8 @@ The program is compiled and run with gcc twice: with GCC's own bitfield rules, a
 (GCC's implementation of the Microsoft rules). This checks gcc's layout of the header only: how IDA lays
 out the same declarations has not been checked. It also counts what is not converted (groups of other
 sizes, bitfields directly in a union) and compares every count with the generator's own statistics.
-Prints the counts; exit 0 when everything passes, 1 otherwise, 2 on bad arguments.
+Prints the counts; exit 0 when everything passes (also when nothing is written as C bitfields, for example for
+big-endian BTF: it then prints NOTHING TO CHECK), 1 otherwise, 2 on bad arguments or an input without usable BTF.
 """
 import argparse
 import os
@@ -248,13 +249,18 @@ def main(argv=None):
     if not os.path.isfile(args.input) or (args.base and not os.path.isfile(args.base)):
         print("usage: python3 tests/check_bitfields.py <kernel or BTF file> [--base vmlinux] [--keep DIR]", file=sys.stderr)
         return 2
-    with open(args.input, "rb") as handle:
-        blob = B.unpack_kernel_image(handle.read(), args.input)
-    base = None
-    if args.base:
-        with open(args.base, "rb") as handle:
-            base = B.load_base(B.unpack_kernel_image(handle.read(), args.base), args.base)
-    data = B.load(blob, base=base)
+    try:
+        with open(args.input, "rb") as handle:
+            blob = B.unpack_kernel_image(handle.read(), args.input)
+        base = None
+        if args.base:
+            with open(args.base, "rb") as handle:
+                base = B.load_base(B.unpack_kernel_image(handle.read(), args.base), args.base)
+        data = B.load(blob, base=base)
+    except B.BTFError as error:  # NeedsBase and BaseMismatch too: a module without --base, a wrong base
+        print("check_bitfields: %s: %s\nusage: python3 tests/check_bitfields.py <kernel or BTF file> [--base vmlinux] [--keep DIR]"
+              % (args.input, error), file=sys.stderr)
+        return 2
     gen = btf2c.Generator(data)
     new = btf2c.header(gen)
     old = btf2c.header(btf2c.Generator(data, bitfields=False))
@@ -296,8 +302,11 @@ def main(argv=None):
             ran = subprocess.run([exe], capture_output=True, text=True)
             print("run (%s): %s" % (label, ran.stdout.strip().replace("\n", "\n  ")))
             results.append(ran)
-    passed = ok and all(r.returncode == 0 for r in results) and fields_checked > 0
-    print("PASS" if passed else "FAIL")
+    passed = ok and all(r.returncode == 0 for r in results)
+    if passed and not fields_checked:  # big-endian BTF, or no group btf2c writes as C bitfields: only the header compiled
+        print("NOTHING TO CHECK: no bitfield is written as a C bitfield for this input (the header compiles)")
+    else:
+        print("PASS" if passed else "FAIL")
     if not args.keep and passed:
         for name in os.listdir(folder):
             os.unlink(os.path.join(folder, name))

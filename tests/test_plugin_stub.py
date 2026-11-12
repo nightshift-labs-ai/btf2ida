@@ -136,6 +136,15 @@ with tempfile.TemporaryDirectory() as folder:  # the gcc layout proof of tests/c
                          capture_output=True, text=True)
     assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
     assert "fields checked: 7 (3 signed)" in run.stdout and "bitfield checks 28, failures 0" in run.stdout, run.stdout
+    plain = Build()  # no bitfield at all: nothing to check is not a failure
+    plain.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))
+    plain.t("plain", 4, 1, 4, struct.pack("<III", plain.s("x"), 1, 0))
+    for name, content, code, words in (("plain.btf", plain.blob(), 0, "NOTHING TO CHECK"), ("nobtf.bin", b"\0" * 4096, 2, "no BTF found")):
+        with open(os.path.join(folder, name), "wb") as handle:
+            handle.write(content)
+        run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"),
+                              os.path.join(folder, name)], capture_output=True, text=True)
+        assert run.returncode == code and words in run.stdout + run.stderr and "Traceback" not in run.stderr, (name, run.stdout, run.stderr)
 # The toy demo's expected header is what btf2c.py writes for it now.
 toy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demo")
 with open(os.path.join(toy, "toy_kernel.elf"), "rb") as handle:
