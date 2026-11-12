@@ -359,7 +359,8 @@ kw.action_handler_t = object
 kw.action_desc_t = lambda *a: a
 kw.SETMENU_APP = 1
 kw.AST_ENABLE_ALWAYS = 1
-kw.register_action = lambda d: calls.append(("reg", d[0])) or True
+registered = []  # the action_desc_t tuples: (name, label, handler)
+kw.register_action = lambda d: calls.append(("reg", d[0])) or registered.append(d) or True
 kw.attach_action_to_menu = lambda m, a, f: calls.append(("menu", m, a)) or True
 kw.unregister_action = lambda a: calls.append(("unreg", a)) or True
 kw.msg = lambda s: calls.append(("msg", s))
@@ -408,6 +409,20 @@ import btf2ida_entry as m  # noqa: E402
 
 plugin = m.PLUGIN_ENTRY()
 assert plugin.init() == api.PLUGIN_KEEP
+# Two menu items: the import, and the same import with every bitfield as raw bytes (the opt-out from C bitfields).
+assert [c for c in calls if c[0] in ("reg", "menu")] == [("reg", "btf2ida:apply"), ("menu", "Edit/Plugins/", "btf2ida:apply"),
+                                                         ("reg", "btf2ida:apply_raw_bitfields"),
+                                                         ("menu", "Edit/Plugins/", "btf2ida:apply_raw_bitfields")], calls
+assert [(d[1], d[2].bitfields) for d in registered] == [("BTF2IDA: Apply kernel types and prototypes", True),
+                                                       ("BTF2IDA: Apply kernel types and prototypes (bitfields as raw bytes)", False)]
+del calls[:]
+assert registered[1][2].activate(None) == 1
+parsed = "\n".join(c[1] for c in calls if c[0] == "parse")
+message = [c[1] for c in calls if c[0] == "info"][0]
+assert "__bits_4[1]; /* a:3@0, b:5@3 */" in parsed and "b:5;" not in parsed, parsed
+assert "Bitfields kept as raw bytes (names in a comment), as asked (menu item 'BTF2IDA: Apply kernel types and prototypes " \
+       "(bitfields as raw bytes)', headless --no-bitfields)" in message, message
+del calls[:]
 assert m.ApplyBTF().activate(None) == 1
 assert [c for c in calls if c[0] == "settype"] == [("settype", 0x1000, "int __btf2ida_fn(struct task *arg);")], calls
 assert all(c[2] == idc.PT_SIL | idc.PT_PAK1 for c in calls if c[0] == "parse")
@@ -453,7 +468,7 @@ assert "Bitfields kept as raw bytes (names in a comment): the BTF is big-endian"
 del calls[:]                                                               # the opt-out (headless --no-bitfields)
 message = m.run_import(bitfields=False)
 parsed = "\n".join(c[1] for c in calls if c[0] == "parse")
-assert "__bits_4[1]; /* a:3@0, b:5@3 */" in parsed and "b:5;" not in parsed and "as asked (--no-bitfields)" in message, message
+assert "__bits_4[1]; /* a:3@0, b:5@3 */" in parsed and "b:5;" not in parsed and "headless --no-bitfields)" in message, message
 
 # A kernel module (split BTF): its own functions are typed and counted as before. vmlinux's functions are
 # typed only where IDA lists them in an extern segment; the others are not counted as missing.
@@ -696,7 +711,7 @@ with tempfile.NamedTemporaryFile() as handle:
 m.run_import = real_run_import
 del sys.modules["idapro"]
 # An unexpected error inside the action becomes one warning, not a traceback dialog.
-def boom():
+def boom(*args, **kwargs):
     raise IndexError("synthetic")
 m.run_import = boom
 del calls[:]
@@ -705,7 +720,7 @@ warns = [c[1] for c in calls if c[0] == "warn"]
 assert len(warns) == 1 and "unexpected error" in warns[0] and "/btf2ida/issues" in warns[0], calls
 assert any(c[0] == "msg" and "IndexError: synthetic" in c[1] for c in calls), calls
 plugin.term()
-assert ("unreg", "btf2ida:apply") in calls
+assert ("unreg", "btf2ida:apply") in calls and ("unreg", "btf2ida:apply_raw_bitfields") in calls, calls
 # "void f(void)" from BTF: skipped for assembly entry points (memcpy) and where IDA's type already has parameters;
 # a genuine void f(void) with no better type is still applied
 addrs = {"memcpy": 0x7100, "irq_enter_rcu": 0x7200, "has_args": 0x7300, "with_args": 0x7400}

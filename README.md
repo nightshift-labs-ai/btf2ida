@@ -69,6 +69,8 @@ Or copy this folder into your IDA `plugins` directory. IDA 9.0 or later. The plu
 
 Open a kernel or kernel module in IDA, then **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**. A summary says how many types IDA accepted and how many prototypes were applied.
 
+**Edit > Plugins > BTF2IDA: Apply kernel types and prototypes (bitfields as raw bytes)** runs the same import but keeps every bitfield as raw storage bytes with its name in a comment, the form before C bitfields, for a database where IDA lays out the C bitfields differently from the BTF.
+
 Functions the compiler rewrote (`.isra`, `.constprop`, `.part`, `.cold`) are left untyped on purpose: their calling convention may differ from the source signature.
 
 **Does my kernel have BTF?** On a running system: `ls /sys/kernel/btf/vmlinux`. For a kernel file: `readelf -S vmlinux | grep BTF`. A memory export has no `.BTF` section, but the data is still in it; the plugin finds it by its header and checks it. Without IDA, `python3 btf2c.py <file> /dev/null` prints the type counts, or `btf2c: no BTF found`. Every kernel we tried has it (Debian 13, Ubuntu 26.04, WSL2, Android GKI 6.1).

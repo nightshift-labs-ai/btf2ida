@@ -625,7 +625,8 @@ def external_btf(vmlinux, ask):
 
 
 def run_import(vmlinux=None, ask=True, bitfields=True):
-    """The whole import; returns the summary. bitfields=False keeps every bitfield as raw bytes (headless --no-bitfields)."""
+    """The whole import; returns the summary. bitfields=False keeps every bitfield as raw bytes (the menu item
+    LABEL_RAW, headless --no-bitfields)."""
     data, source = find_btf(vmlinux, ask)
     if data is None:
         path = ida_nalt.get_input_file_path()
@@ -654,7 +655,7 @@ def run_import(vmlinux=None, ask=True, bitfields=True):
     generator = btf2c.Generator(data, pointer_size, bool_name=bool_name(), bitfields=bitfields and order_problem is None)
     bitfield_note = None
     if not bitfields:
-        bitfield_note = "Bitfields kept as raw bytes (names in a comment), as asked (--no-bitfields)"
+        bitfield_note = "Bitfields kept as raw bytes (names in a comment), as asked (%s)" % RAW_ACTION_HINT
     elif order_problem:
         bitfield_note = "Bitfields kept as raw bytes (names in a comment): %s, and BTF counts them from the least significant one" % order_problem
     elif data.endian != "<":
@@ -705,12 +706,16 @@ def guarded(activate):
     return wrapper
 
 class ApplyBTF(ida_kernwin.action_handler_t):
+    def __init__(self, bitfields=True):
+        ida_kernwin.action_handler_t.__init__(self)
+        self.bitfields = bitfields  # False: the "(bitfields as raw bytes)" menu item
+
     @guarded
     def activate(self, ctx):
         problem = None
         ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
         try:
-            message = run_import()
+            message = run_import(bitfields=self.bitfields)
         except B.BTFError as error:
             message = None
             problem = str(error)
@@ -729,6 +734,11 @@ class ApplyBTF(ida_kernwin.action_handler_t):
 
 ACTION = "btf2ida:apply"
 LABEL = "BTF2IDA: Apply kernel types and prototypes"
+# The same import with every bitfield as raw storage bytes (names in a comment), the form before C bitfields: for a
+# database where IDA lays out the C bitfields differently from the BTF (headless: --no-bitfields).
+ACTION_RAW = "btf2ida:apply_raw_bitfields"
+LABEL_RAW = LABEL + " (bitfields as raw bytes)"
+RAW_ACTION_HINT = "menu item '%s', headless --no-bitfields" % LABEL_RAW
 
 
 class BTF2IDA(ida_idaapi.plugin_t):
@@ -739,9 +749,10 @@ class BTF2IDA(ida_idaapi.plugin_t):
     wanted_hotkey = ""
 
     def init(self):
-        ida_kernwin.register_action(ida_kernwin.action_desc_t(ACTION, LABEL, ApplyBTF()))
-        if not ida_kernwin.attach_action_to_menu("Edit/Plugins/", ACTION, ida_kernwin.SETMENU_APP):
-            ida_kernwin.msg("[BTF2IDA] could not add the menu item\n")
+        for action, label, bitfields in ((ACTION, LABEL, True), (ACTION_RAW, LABEL_RAW, False)):
+            ida_kernwin.register_action(ida_kernwin.action_desc_t(action, label, ApplyBTF(bitfields)))
+            if not ida_kernwin.attach_action_to_menu("Edit/Plugins/", action, ida_kernwin.SETMENU_APP):
+                ida_kernwin.msg("[BTF2IDA] could not add the menu item %s\n" % label)
         return ida_idaapi.PLUGIN_KEEP
 
     def run(self, arg):
@@ -749,6 +760,7 @@ class BTF2IDA(ida_idaapi.plugin_t):
 
     def term(self):
         ida_kernwin.unregister_action(ACTION)
+        ida_kernwin.unregister_action(ACTION_RAW)
 
 
 def PLUGIN_ENTRY():
