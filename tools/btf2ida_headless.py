@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """BTF2IDA without the IDA window, through idalib (IDA 9.0 or newer).
 
-    python3 tools/btf2ida_headless.py <vmlinux or module.ko or memory export> [--vmlinux <vmlinux>] [--no-analysis]
+    python3 tools/btf2ida_headless.py <vmlinux or module.ko or memory export> [--vmlinux <vmlinux>] [--no-analysis] [--no-bitfields]
 
 Opens the file as an IDA database, runs the same import as the menu action (types, __ksymtab names, function
 prototypes; for a module, split BTF on top of --vmlinux), prints the same summary and saves the database.
@@ -24,6 +24,8 @@ def main(argv=None):
     parser.add_argument("input", help="vmlinux, kernel module (.ko) or memory export to open in IDA")
     parser.add_argument("--vmlinux", help="the matching vmlinux, needed when the input carries split BTF (a module); for a whole kernel without BTF, a BTF file of the same build (raw BTF, vmlinux, or a BTFHub <release>.btf.tar.xz)")
     parser.add_argument("--no-analysis", action="store_true", help="skip IDA's auto-analysis (faster; fewer functions exist to receive prototypes)")
+    parser.add_argument("--no-bitfields", action="store_true", help="keep every bitfield as raw storage bytes with its name in a comment, "
+                        "instead of C bitfields (for example if IDA shows a struct's layout differently from the BTF)")
     args = parser.parse_args(argv)
     for path in (args.input, args.vmlinux):
         if path and not os.path.isfile(path):
@@ -40,7 +42,7 @@ def main(argv=None):
     try:
         import btf2ida_entry
         try:
-            message = btf2ida_entry.run_import(args.vmlinux, ask=False)  # no dialogs without a window
+            message = btf2ida_entry.run_import(args.vmlinux, ask=False, bitfields=not args.no_bitfields)  # no dialogs without a window
         except btf2ida_entry.B.BTFError as error:
             print("btf2ida_headless: %s" % error, file=sys.stderr)
             return 3

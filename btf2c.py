@@ -576,6 +576,8 @@ def main(argv=None):
     parser.add_argument("--pointer-size", type=int, default=8)
     parser.add_argument("--prototypes", help="also write one prototype per line here")
     parser.add_argument("--asserts", help="also write a C file of _Static_assert layout checks")
+    parser.add_argument("--no-bitfields", action="store_true",
+                        help="keep every group of bitfields as raw storage bytes with the names in a comment (the earlier form)")
     args = parser.parse_args(argv)
     try:
         with open(args.input, "rb") as handle:
@@ -592,7 +594,7 @@ def main(argv=None):
         sys.exit("btf2c: %s: %s (add --base /path/to/vmlinux or /sys/kernel/btf/vmlinux)" % (args.input, error))
     except (B.BTFError, OSError) as error:
         sys.exit("btf2c: %s" % error)
-    generator = Generator(data, args.pointer_size)
+    generator = Generator(data, args.pointer_size, bitfields=not args.no_bitfields)
     text = header(generator)
     with open(args.output, "w", encoding="utf-8") as handle:
         handle.write(text)

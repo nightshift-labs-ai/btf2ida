@@ -207,6 +207,13 @@ with tempfile.TemporaryDirectory() as folder:  # the gcc layout proof of tests/c
                          capture_output=True, text=True)
     assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
     assert "fields checked: 7 (3 signed)" in run.stdout and "bitfield checks 28, failures 0" in run.stdout, run.stdout
+    path, out = os.path.join(folder, "flags.btf"), os.path.join(folder, "flags.h")  # btf2c.py --no-bitfields: raw bytes
+    btf2c.main([path, out, "--no-bitfields"])
+    with open(out, encoding="utf-8") as handle:
+        assert "__bits_0[2]; /* ready:1@0, mode:3@1, refs:8@6 */" in handle.read()
+    btf2c.main([path, out])
+    with open(out, encoding="utf-8") as handle:
+        assert "  unsigned short ready:1;\n" in handle.read()
     path = os.path.join(folder, "odd.btf")  # overlap kept raw, unnamed filler, merged groups: gcc agrees with the BTF
     with open(path, "wb") as handle:
         handle.write(o.blob())
@@ -443,6 +450,10 @@ assert m.ApplyBTF().activate(None) == 1
 m.find_btf = real_load_btf
 message = [c[1] for c in calls if c[0] == "info"][0]
 assert "Bitfields kept as raw bytes (names in a comment): the BTF is big-endian" in message, message
+del calls[:]                                                               # the opt-out (headless --no-bitfields)
+message = m.run_import(bitfields=False)
+parsed = "\n".join(c[1] for c in calls if c[0] == "parse")
+assert "__bits_4[1]; /* a:3@0, b:5@3 */" in parsed and "b:5;" not in parsed and "as asked (--no-bitfields)" in message, message
 
 # A kernel module (split BTF): its own functions are typed and counted as before. vmlinux's functions are
 # typed only where IDA lists them in an extern segment; the others are not counted as missing.
@@ -664,11 +675,14 @@ idapro.close_database = lambda save: opened.append(("close", save))
 sys.modules["idapro"] = idapro
 import btf2ida_headless as headless  # noqa: E402
 real_run_import = m.run_import
-m.run_import = lambda vmlinux=None, ask=True: opened.append(("run", vmlinux, ask)) or "summary"
+m.run_import = lambda vmlinux=None, ask=True, bitfields=True: opened.append(("run", vmlinux, ask, bitfields)) or "summary"
 with tempfile.NamedTemporaryFile() as handle:
     assert headless.main([handle.name, "--vmlinux", handle.name, "--no-analysis"]) == 0
-    assert opened == [("open", False), ("run", handle.name, False), ("close", True)], opened
-    def no_btf(vmlinux=None, ask=True):
+    assert opened == [("open", False), ("run", handle.name, False, True), ("close", True)], opened
+    del opened[:]
+    assert headless.main([handle.name, "--no-bitfields"]) == 0
+    assert opened == [("open", True), ("run", None, False, False), ("close", True)], opened
+    def no_btf(vmlinux=None, ask=True, bitfields=True):
         raise B.BTFError("no BTF found in the input file or the loaded segments.")
     m.run_import = no_btf
     del opened[:]

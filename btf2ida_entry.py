@@ -624,7 +624,8 @@ def external_btf(vmlinux, ask):
         raise B.BTFError("the chosen file %s has no usable BTF (%s)" % (path, error))
 
 
-def run_import(vmlinux=None, ask=True):
+def run_import(vmlinux=None, ask=True, bitfields=True):
+    """The whole import; returns the summary. bitfields=False keeps every bitfield as raw bytes (headless --no-bitfields)."""
     data, source = find_btf(vmlinux, ask)
     if data is None:
         path = ida_nalt.get_input_file_path()
@@ -650,9 +651,11 @@ def run_import(vmlinux=None, ask=True):
             source = "%s (a separate file: btf2ida cannot check that it is for this kernel build)" % chosen
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4
     order_problem = bitfield_order_problem()
-    generator = btf2c.Generator(data, pointer_size, bool_name=bool_name(), bitfields=order_problem is None)
+    generator = btf2c.Generator(data, pointer_size, bool_name=bool_name(), bitfields=bitfields and order_problem is None)
     bitfield_note = None
-    if order_problem:
+    if not bitfields:
+        bitfield_note = "Bitfields kept as raw bytes (names in a comment), as asked (--no-bitfields)"
+    elif order_problem:
         bitfield_note = "Bitfields kept as raw bytes (names in a comment): %s, and BTF counts them from the least significant one" % order_problem
     elif data.endian != "<":
         bitfield_note = "Bitfields kept as raw bytes (names in a comment): the BTF is big-endian, where btf2c's C bitfields have not been checked"
