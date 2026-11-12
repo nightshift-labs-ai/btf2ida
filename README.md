@@ -21,7 +21,7 @@ A Linux kernel without its debug package is mostly `__int64 a1`, and matching he
 Install the current release (the plugin index can lag a day or more behind; see [Install](#install)):
 
 ```
-hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/tags/v0.1.21.zip
+hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/tags/v0.1.22.zip
 ```
 
 Smallest try, nothing to download: `demo/toy_kernel.elf` (17 KB) is a small program with kernel-style types, built with `gcc -gbtf`, so it carries BTF and no DWARF and IDA has no other source for these types (`demo/build.sh` rebuilds it).
@@ -112,7 +112,7 @@ Debian 13 `nf_tables.ko` (6.12.115+deb13.1-cloud-amd64), with that kernel's vmli
 | Names from the module's symbol table: its 193 undefined symbols in an extern segment, its 1,042 text symbols as functions | 489 functions typed, 0 imports; not in this database: 47,752 | 488 module functions and 154 imports typed (for example `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`); not in this database: 7 |
 
 - The 7 have BTF but no symbol in the module.
-- Since the next release, 150 of the 154: four (`__fentry__`, `memcpy`, `memmove`, `memset`) are assembly functions, which BTF records as `void f(void)`; they are left as IDA has them (the "Not applied: 4" line below).
+- Since v0.1.21, 150 of the 154: four (`__fentry__`, `memcpy`, `memmove`, `memset`) are assembly functions, which BTF records as `void f(void)`; they are left as IDA has them (the "Not applied: 4" line below).
 - The other 39 imports have no function BTF in vmlinux. Examples: data (`jiffies`), thunks (`__x86_indirect_thunk_rax`), functions of another module (`nfnetlink_*`), and `memcmp`.
 - One function typed before is now left alone: the module's own `jhash`, whose BTF is only in vmlinux's part. A vmlinux name outside the extern segment is not trusted to be the same function.
 
