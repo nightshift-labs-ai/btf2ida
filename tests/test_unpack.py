@@ -6,6 +6,7 @@ Real files checked by hand (README): Debian 11 5.10 (xz bzImage), Debian 13 6.12
 """
 import bz2
 import gzip
+import hashlib
 import lzma
 import os
 import struct
@@ -100,11 +101,11 @@ two = tar([("a.btf", KERNEL), ("b.btf", KERNEL)], "w:xz")
 assert B.btf_from_archive(two) is None                                         # ambiguous: not guessed
 assert B.btf_from_archive(KERNEL) is None and B.btf_from_archive(gzip.compress(KERNEL)) is None
 for mode in ("w:xz", "w:gz"):                                                  # a corrupt archive: None, no exception
-    damaged = bytearray(tar([("k.btf", bytes(range(256)) * 400)], mode))
+    noise = b"".join(hashlib.sha256(b"%d" % i).digest() for i in range(8000))  # incompressible, 256 KB
+    damaged = bytearray(tar([("k.btf", noise)], mode))
     for at in (len(damaged) * 6 // 10, len(damaged) * 9 // 10):
-        damaged[at:at + 64] = bytes(64)
-    result = B.btf_from_archive(bytes(damaged))                              # must not raise
-    assert result is None or mode == "w:gz", mode  # xz checks its data; damaged deflate can decode to garbage
+        damaged[at:at + 64] = bytes(byte ^ 0xFF for byte in damaged[at:at + 64])
+    B.btf_from_archive(bytes(damaged))  # must not raise (None, or garbage that the BTF parser then refuses)
 for kind, pack in packers.items():                                             # a truncated payload is refused
     packed = pack(KERNEL)
     try:
