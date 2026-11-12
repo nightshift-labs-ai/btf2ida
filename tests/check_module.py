@@ -74,7 +74,7 @@ def fake_database(module_path, vmlinux_path, with_names=True):
            info=lambda *a: None, warning=lambda *a: None, user_cancelled=lambda: False,
            ask_file=lambda *a: vmlinux_path)
     module("ida_idaapi", plugin_t=object, PLUGIN_KEEP=2, PLUGIN_HIDE=16)
-    module("ida_ida", inf_is_64bit=lambda: True)
+    module("ida_ida", inf_is_64bit=lambda: True, inf_get_cc_size_b=lambda: 1)  # GCC default: bool is 1 byte
     module("idc", PT_SIL=1, PT_PAK1=16, BADADDR=badaddr, parse_decls=lambda text, flags: 0,
            get_name_ea_simple=lambda n: names.get(n, badaddr),
            SetType=lambda ea, decl: settype.append((ea, decl)) or True,

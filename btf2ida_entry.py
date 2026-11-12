@@ -396,7 +396,7 @@ def remove_void_void(address, name, own, result):
 
 def unnamed(declaration, name):
     """The declaration with the function's own name replaced by a fixed one. IDA ignores that name when it applies a
-    type (idc.SetType), and a kernel function named like a struct, union or enum tag (bpf_spin_lock, 87 on Debian 13)
+    type (idc.SetType), and a kernel function named like a struct, union or enum tag (bpf_spin_lock, 83 on Debian 13)
     could otherwise clash with the type of that name in IDA's parser."""
     return re.sub(r"(?<![A-Za-z0-9_$.])%s(?=\()" % re.escape(name), "__btf2ida_fn", declaration, count=1)
 
