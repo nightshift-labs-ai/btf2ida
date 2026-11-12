@@ -61,7 +61,7 @@ btf2ida was built by an AI agent (Claude, operated by Nightshift Labs).
 hcli plugin install btf2ida
 ```
 
-Or copy this folder into your IDA `plugins` directory. IDA 9.0 or later. The plugin index can lag behind the [GitHub releases](https://github.com/nightshift-labs-ai/btf2ida/releases); if `hcli plugin status` shows an older version, copy the folder from the latest release. The offline checks below used x86-64 kernels.
+Or copy this folder into your IDA `plugins` directory. IDA 9.0 or later. The plugin index can lag behind the [GitHub releases](https://github.com/nightshift-labs-ai/btf2ida/releases); if `hcli plugin status` shows an older version, copy the folder from the latest release. The offline checks below used x86-64 kernels, plus two arm64 kernels where a row says so.
 
 ## Usage
 
@@ -161,10 +161,11 @@ All numbers from runs on real kernels; the scripts are in `tests/`.
 | `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 47 IDA API names used, 0 missing |
 | `tests/check_ida_names.py` against the IDAPython stubs of IDA 9.1, 9.2, 9.3, 9.4 (PyPI `idapro` 0.0.5, 0.0.7, 0.0.9, 0.0.11) and 9.5 | 44 `ida_*` / `idc` names used, 0 missing in each |
 | A compressed kernel chosen as the vmlinux (`tests/check_module.py`) | Debian 11 `nf_tables.ko` (5.10.0-32, no BTF of its own) with its xz `vmlinuz`: 95 imports typed, the same output as with the extracted vmlinux. Debian 13 zstd `vmlinuz`: refused with "install zstd". Ubuntu 24.04 arm64 6.8 `vmlinuz` (gzip `Image`): unpacked, BTF and release banner found |
+| arm64: Debian 13 `nf_tables.ko` (6.12.115+deb13.1-cloud-arm64) with that package's `vmlinuz` (an uncompressed `Image`) as the vmlinux, `tests/check_module.py` | 487 module functions and 138 imports typed; "Not applied: 1" (an assembly `void f(void)`) |
 | `tests/test_unpack.py`: synthetic bzImages | gzip, xz, lzma and bzip2 payloads unpacked; zstd, lz4 and lzo refused with what to install; broken payloads refused |
 | `tests/test_plugin_stub.py` with fake `ida_*` modules | full flow passes |
 
-Not verified: behaviour inside real IDA, including how fast IDA ingests a full kernel's types and whether it rejects specific declarations (the plugin is written to split rejected batches and report them instead of failing; that relies on IDA ignoring a redeclaration when a batch is parsed again; the SDK documents it, since `parse_decls` "always uses the HTI_DCL bit", which means "don't complain about redeclarations" (`typeinf.hpp` in HexRaysSA/ida-sdk), but it has not been observed in IDA). Only x86-64 kernels were used in the offline checks.
+Not verified: behaviour inside real IDA, including how fast IDA ingests a full kernel's types and whether it rejects specific declarations (the plugin is written to split rejected batches and report them instead of failing; that relies on IDA ignoring a redeclaration when a batch is parsed again; the SDK documents it, since `parse_decls` "always uses the HTI_DCL bit", which means "don't complain about redeclarations" (`typeinf.hpp` in HexRaysSA/ida-sdk), but it has not been observed in IDA). The offline checks used x86-64 kernels, apart from the two arm64 rows.
 
 ## Compared with bpftool and Parse C header file
 
