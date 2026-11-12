@@ -4,6 +4,7 @@ Taken from the GitHub release notes. Newest first.
 
 ## Unreleased
 
+- `tests/check_ida_names.py <stub dir>...`: checks that every `ida_*` / `idc` name btf2ida uses exists in a folder of IDAPython stubs; all 41 are in the stubs of IDA 9.1 to 9.5.
 - Prototypes: BTF records assembly functions (memcpy, memset, memmove, `__get_user_N`, `__put_user_N`, ...) as `void f(void)`, the same record as a real `void f(void)`; applying it wiped the arguments at every call (in a Debian 13 `nf_tables.ko`, the imports memcpy, memmove and memset). btf2ida now leaves such a prototype out for a list of known x86 assembly entry points (plus `__sw_hweight32/64`), for a name that IDA's loaded type libraries give a prototype with parameters, and wherever IDA's current type already lists parameters, and says how many in a new summary line. Every other `void f(void)` (most of them, e.g. 1,942 on the Debian 13 demo kernel, are real C functions) is still applied. On arm64 only `memmove`, `__memcpy` and `__memset` are recorded this way. `nf_tables.ko` example: 151 imports typed (was 154) + "Not applied: 3". Stub test; tested only on fake IDA modules.
 
 ## v0.1.20 (2026-11-13)
