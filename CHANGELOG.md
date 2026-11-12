@@ -2,6 +2,10 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## Unreleased
+
+- A kernel module without BTF of its own and a vmlinux of another kernel release: btf2ida used to refuse outright (while a raw BTF file of any kernel passed with a note). It now asks whether to use that vmlinux anyway (default No; headless `--force`, also in `tests/check_module.py`), and the summary then says "Used anyway (your choice)" with both releases. Measured: Ubuntu 6.17 `intel_cvs.ko` with the Debian 13 6.12 vmlinux, refused without `--force`, 40 of 56 imports typed with it. Split BTF still needs its exact base. Stub tests for Yes / No / Cancel and `--force`; 53 `ida_*` / `idc` names in the IDA 9.1 to 9.5 stubs, 65 API names against ida-sdk. Fake IDA modules only.
+
 ## v0.1.21 (2026-11-14)
 
 - Prototypes: BTF records assembly functions as `void f(void)`, the same record as a real `void f(void)`; applying it wiped the arguments at every call (in a Debian 13 `nf_tables.ko`, the imports memcpy, memmove and memset; on arm64 also `strchr`, and `__arch_copy_from_user` / `__arch_copy_to_user` behind every `copy_from_user` / `copy_to_user`). btf2ida now leaves such a prototype out for 228 assembly names (entry points defined in the x86 and arm64 `.S` files, mostly by `SYM_FUNC_START`/`SYM_CODE_START`, plus the 7.0 `lib/crypto` routines, that BTF records as `void f(void)` on Debian 13 6.12 amd64 and arm64, Ubuntu 24.04 6.8 amd64 and arm64, and Ubuntu 26.04 7.0), and for any name whose type in IDA lists parameters: the type at the address (read with `get_tinfo`), or the prototype IDA's type libraries hold for that symbol (`get_named_type` with `NTF_SYMU`). A new summary line counts the two cases. An `int f(void)` or other non-void record is a real C prototype and is still applied, and so is every other `void f(void)` (the Debian 13 demo `kernel.elf` has 1,942 such records, mostly real C functions such as `synchronize_rcu`). `nf_tables.ko`: 150 imports typed (was 154) + "Not applied: 4" (those three and the ftrace hook `__fentry__`); arm64 `nf_tables.ko`: 137 + 2. Stub test; tested only on fake IDA modules.

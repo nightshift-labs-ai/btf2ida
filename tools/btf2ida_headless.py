@@ -23,6 +23,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Apply BTF2IDA to a kernel file with idalib (no IDA window).")
     parser.add_argument("input", help="vmlinux, kernel module (.ko) or memory export to open in IDA")
     parser.add_argument("--vmlinux", help="the matching vmlinux, needed when the input carries split BTF (a module); for a whole kernel without BTF, a BTF file of the same build (raw BTF, vmlinux, or a BTFHub <release>.btf.tar.xz)")
+    parser.add_argument("--force", action="store_true", help="kernel module without BTF of its own: use the --vmlinux file even if its kernel release differs from the module's (vermagic); the summary says so")
     parser.add_argument("--no-analysis", action="store_true", help="skip IDA's auto-analysis (faster; fewer functions exist to receive prototypes)")
     args = parser.parse_args(argv)
     for path in (args.input, args.vmlinux):
@@ -40,7 +41,7 @@ def main(argv=None):
     try:
         import btf2ida_entry
         try:
-            message = btf2ida_entry.run_import(args.vmlinux, ask=False)  # no dialogs without a window
+            message = btf2ida_entry.run_import(args.vmlinux, ask=False, force=args.force)  # no dialogs without a window
         except btf2ida_entry.B.BTFError as error:
             print("btf2ida_headless: %s" % error, file=sys.stderr)
             return 3

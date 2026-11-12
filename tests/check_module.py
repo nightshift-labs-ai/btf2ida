@@ -20,7 +20,7 @@ import time
 import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-USAGE = "usage: python3 tests/check_module.py <module.ko> <vmlinux> [--no-names]"
+USAGE = "usage: python3 tests/check_module.py <module.ko> <vmlinux> [--no-names] [--force]"
 
 FUNC_BASE = 0x1000      # fake addresses of the module's own functions
 EXTERN_BASE = 0x900000  # fake extern segment; everything at or above it is SEG_XTRN
@@ -92,7 +92,7 @@ def fake_database(module_path, vmlinux_path, with_names=True):
 
 
 def main(argv):
-    args = [a for a in argv if a != "--no-names"]
+    args = [a for a in argv if a not in ("--no-names", "--force")]
     if len(args) != 2 or not all(os.path.isfile(a) for a in args):
         print(USAGE, file=sys.stderr)
         return 2
@@ -106,7 +106,7 @@ def main(argv):
           % (len(functions), len(externs), " (names hidden: --no-names)" if "--no-names" in argv else ""))
     start = time.time()
     try:
-        summary = btf2ida_entry.run_import(vmlinux_path, ask=False)
+        summary = btf2ida_entry.run_import(vmlinux_path, ask=False, force="--force" in argv)
     except B.BTFError as error:
         print("BTF2IDA: %s" % error)
         return 1

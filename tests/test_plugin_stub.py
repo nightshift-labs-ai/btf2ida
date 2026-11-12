@@ -161,6 +161,8 @@ kw.warning = lambda s: calls.append(("warn", s))
 kw.show_wait_box = kw.replace_wait_box = lambda s: None
 kw.hide_wait_box = lambda: None
 kw.user_cancelled = lambda: False
+kw.ASKBTN_NO, kw.ASKBTN_YES, kw.ASKBTN_CANCEL = 0, 1, -1
+kw.ask_yn = lambda deflt, text: calls.append(("ask_yn", deflt, text)) or kw.ASKBTN_NO
 api = types.ModuleType("ida_idaapi")
 api.plugin_t = object
 api.PLUGIN_KEEP = 2
@@ -333,6 +335,25 @@ with tempfile.TemporaryDirectory() as folder:
             assert not refused and "Typed 1 imported" in message and "Not checked" not in message, message
         except B.BTFError as error:
             assert refused and "built for 6.1.0-x, but the chosen vmlinux is 6.17.0-41-generic" in str(error), error
+            assert "add --force to use this one anyway" in str(error), error  # headless (ask=False) names the way out
+    # Another release: headless --force, or Yes in the dialog, uses it anyway and the summary says so; No refuses.
+    message = m.run_import(bannered, ask=False, force=True)
+    assert "Typed 1 imported" in message and "Used anyway (your choice): the module was built for 6.1.0-x, but the " \
+        "chosen vmlinux is 6.17.0-41-generic" in message, message
+    for answer, used in ((kw.ASKBTN_YES, True), (kw.ASKBTN_NO, False), (kw.ASKBTN_CANCEL, False)):
+        del calls[:]
+        kw.ask_yn = lambda deflt, text, answer=answer: calls.append(("ask_yn", deflt, text)) or answer
+        try:
+            message = m.run_import(bannered)
+            assert used and "Used anyway (your choice)" in message, message
+        except B.BTFError as error:
+            assert not used and "choose the vmlinux of the same build" in str(error) and "--force" not in str(error), error
+        asked = [c for c in calls if c[0] == "ask_yn"]
+        assert len(asked) == 1 and asked[0][1] == kw.ASKBTN_NO and "built for 6.1.0-x" in asked[0][2], asked
+    del calls[:]
+    message = m.run_import(paths["vmlinux.btf"])  # raw BTF, no banner: no question, the "Not checked" line as before
+    assert not [c for c in calls if c[0] == "ask_yn"] and "Used anyway" not in message and "Not checked" in message, message
+    kw.ask_yn = lambda deflt, text: calls.append(("ask_yn", deflt, text)) or kw.ASKBTN_NO
     # A memory image can also hold older banners in logs (journald, dmesg), in any order: one that matches is enough.
     with open(bannered, "wb") as handle:
         handle.write(raw_vmlinux + b"MESSAGE=Linux version 6.0.9-old (b@h) #1\0Linux version 6.1.0-x (builder@host) #1\0")
@@ -431,11 +452,15 @@ idapro.close_database = lambda save: opened.append(("close", save))
 sys.modules["idapro"] = idapro
 import btf2ida_headless as headless  # noqa: E402
 real_run_import = m.run_import
-m.run_import = lambda vmlinux=None, ask=True: opened.append(("run", vmlinux, ask)) or "summary"
+m.run_import = lambda vmlinux=None, ask=True, force=False: opened.append(("run", vmlinux, ask, force)) or "summary"
 with tempfile.NamedTemporaryFile() as handle:
     assert headless.main([handle.name, "--vmlinux", handle.name, "--no-analysis"]) == 0
-    assert opened == [("open", False), ("run", handle.name, False), ("close", True)], opened
-    def no_btf(vmlinux=None, ask=True):
+    assert opened == [("open", False), ("run", handle.name, False, False), ("close", True)], opened
+    del opened[:]
+    assert headless.main([handle.name, "--vmlinux", handle.name, "--force"]) == 0
+    assert opened == [("open", True), ("run", handle.name, False, True), ("close", True)], opened
+    del opened[:]
+    def no_btf(vmlinux=None, ask=True, force=False):
         raise B.BTFError("no BTF found in the input file or the loaded segments.")
     m.run_import = no_btf
     del opened[:]

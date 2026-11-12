@@ -124,8 +124,9 @@ def input_is_module():
         return False
 
 
-def vmlinux_for_module(vmlinux, ask):
-    """vmlinux BTF for a kernel module that has no BTF of its own (its imports can still be typed)."""
+def vmlinux_for_module(vmlinux, ask, force=False):
+    """vmlinux BTF for a kernel module that has no BTF of its own (its imports can still be typed). A vmlinux of
+    another kernel release is refused unless the user says to use it anyway (ask) or force is set (headless --force)."""
     why = "this kernel module has no BTF of its own"
     path = vmlinux
     if not path and not ask:
@@ -141,9 +142,22 @@ def vmlinux_for_module(vmlinux, ask):
     data = B.load_base(blob, path)
     # Nothing in the BTF ties it to the module (no split BTF to check), so compare the kernel releases.
     built_for, found = input_module_release(), B.kernel_releases(blob)
+    data.release_mismatch = None
     if built_for and found and built_for not in found:
-        raise B.BTFError("this kernel module was built for %s, but the chosen vmlinux is %s: choose the vmlinux "
-                         "of the same build (its prototypes may differ)." % (built_for, " / ".join(sorted(found))))
+        releases = " / ".join(sorted(found))
+        if not force and ask:
+            ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
+            answer = ida_kernwin.ask_yn(ida_kernwin.ASKBTN_NO,
+                                        "This kernel module was built for %s, but the chosen vmlinux is %s.\n"
+                                        "The kernel functions the module calls can have other prototypes in that "
+                                        "build.\n\nUse this vmlinux anyway?" % (built_for, releases))
+            ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
+            force = answer == ida_kernwin.ASKBTN_YES
+        if not force:
+            raise B.BTFError("this kernel module was built for %s, but the chosen vmlinux is %s: choose the vmlinux "
+                             "of the same build (its prototypes may differ)%s." % (
+                                 built_for, releases, "" if ask else ", or add --force to use this one anyway"))
+        data.release_mismatch = (built_for, releases)
     data.unchecked_release = built_for if built_for and not found else None
     return data
 
@@ -160,7 +174,7 @@ def input_module_release():
         return None
 
 
-def find_btf(vmlinux=None, ask=True):
+def find_btf(vmlinux=None, ask=True, force=False):
     """(BTF, where it came from). For split BTF it uses the vmlinux path given, or asks for one (if ask)."""
     base = None
     for attempt in range(2):
@@ -170,7 +184,7 @@ def find_btf(vmlinux=None, ask=True):
                 return found, "the input file"
             found = from_segments(base)
             if found is None and base is None and input_is_module():
-                return vmlinux_for_module(vmlinux, ask), SOURCE_NO_OWN_BTF
+                return vmlinux_for_module(vmlinux, ask, force), SOURCE_NO_OWN_BTF
             return found, "the loaded segments"
         except B.NeedsBase:
             if attempt:
@@ -507,6 +521,10 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
                      "a forward declaration is sent for them; the kernel functions it calls are not typed (their prototypes "
                      "are only in vmlinux's BTF)." % ("get no prototype (32-bit, see above)" if no_prototypes_32 else "are typed",
                                                  stats["base_only"]))
+    mismatch = getattr(generator.btf, "release_mismatch", None) if no_own_btf else None
+    if mismatch:
+        lines.append("Used anyway (your choice): the module was built for %s, but the chosen vmlinux is %s, so the "
+                     "prototypes of the kernel functions it calls may differ from that build." % mismatch)
     if no_own_btf and getattr(generator.btf, "unchecked_release", None):
         lines.append("Not checked: the module was built for %s, and the chosen file has no 'Linux version' banner "
                      "(raw BTF?), so make sure it comes from that same build." % generator.btf.unchecked_release)
@@ -604,8 +622,8 @@ def external_btf(vmlinux, ask):
         raise B.BTFError("the chosen file %s has no usable BTF (%s)" % (path, error))
 
 
-def run_import(vmlinux=None, ask=True):
-    data, source = find_btf(vmlinux, ask)
+def run_import(vmlinux=None, ask=True, force=False):
+    data, source = find_btf(vmlinux, ask, force)
     if data is None:
         path = ida_nalt.get_input_file_path()
         if path and not os.path.isfile(path):
