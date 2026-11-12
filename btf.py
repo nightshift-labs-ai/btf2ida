@@ -399,7 +399,7 @@ def btf_from_archive(blob):
                 return None
             handle = archive.extractfile(chosen[0])
             return handle.read() if handle else None
-    except (tarfile.TarError, OSError, EOFError, ValueError, ImportError):
+    except Exception:  # noqa: BLE001  (TarError, OSError, EOFError, lzma.LZMAError, zlib.error...: not a usable archive)
         return None
 
 
