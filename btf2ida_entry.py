@@ -112,6 +112,17 @@ def from_segments(base):
 SOURCE_NO_OWN_BTF = "the chosen vmlinux (this kernel module has no BTF of its own)"
 
 
+def read_chosen(path):
+    """Bytes of the vmlinux the user chose (file dialog or --vmlinux); a BTFError that says why if it cannot be read."""
+    try:
+        with open(path, "rb") as handle:
+            return handle.read()
+    except OSError as error:
+        hint = ("; a kernel image in /boot is often readable by root only: choose a copy of /sys/kernel/btf/vmlinux "
+                "of the same kernel, or copy the file with sudo" if isinstance(error, PermissionError) else "")
+        raise B.BTFError("cannot read the chosen file %s (%s)%s" % (path, error.strerror or error, hint))
+
+
 def input_is_module():
     path = ida_nalt.get_input_file_path()
     if not path or not os.path.isfile(path):
@@ -140,8 +151,7 @@ def vmlinux_for_module(vmlinux, ask, force=False):
         ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
     if not path:
         raise B.BTFError(why + ": choose the matching vmlinux to type the kernel functions it calls.")
-    with open(path, "rb") as handle:
-        blob = B.unpack_kernel_image(handle.read(), path)
+    blob = B.unpack_kernel_image(read_chosen(path), path)
     data = B.load_base(blob, path)
     # Nothing in the BTF ties it to the module (no split BTF to check), so compare the kernel releases.
     built_for, found = input_module_release(), B.kernel_releases(blob)
@@ -201,8 +211,7 @@ def find_btf(vmlinux=None, ask=True, force=False):
                 ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
             if not path:
                 raise B.BTFError("this is split BTF (a kernel module): it needs the matching vmlinux, and none was chosen.")
-            with open(path, "rb") as handle:
-                base = B.load_base(B.unpack_kernel_image(handle.read(), path), path)
+            base = B.load_base(B.unpack_kernel_image(read_chosen(path), path), path)
     return None, ""
 
 

@@ -495,6 +495,29 @@ with tempfile.TemporaryDirectory() as folder:
         raise AssertionError("a missing BTF file must fail with a clear message")
     except B.BTFError as error:
         assert "cannot read the chosen file" in str(error), error
+    # A vmlinux chosen in the dialog that cannot be read (Ubuntu's /boot/vmlinuz-* is root-only): one clear warning,
+    # not "unexpected error", for split BTF and for a module without BTF of its own.
+    locked = os.path.join(folder, "vmlinuz-locked")
+    with open(locked, "wb") as handle:
+        handle.write(raw_vmlinux)
+    os.chmod(locked, 0)
+    if os.access(locked, os.R_OK):  # root reads anything
+        print("stub test: skipped the unreadable-vmlinux case (running as root)")
+    else:
+        kw.ask_file = lambda save, default, prompt: locked
+        for module_file in (paths["mod.ko"], nobtf):
+            nalt.get_input_file_path = lambda module_file=module_file: module_file
+            del calls[:]
+            assert m.ApplyBTF().activate(None) == 1, calls
+            warnings = [c[1] for c in calls if c[0] == "warn"]
+            assert len(warnings) == 1 and warnings[0].startswith("BTF2IDA: cannot read the chosen file %s (" % locked), calls
+            assert "unexpected error" not in warnings[0] and "root only" in warnings[0], warnings
+        try:  # headless --vmlinux: a BTFError (exit code 3), not a traceback
+            m.run_import(locked, ask=False)
+            raise AssertionError("an unreadable vmlinux was accepted")
+        except B.BTFError as error:
+            assert str(error).startswith("cannot read the chosen file"), error
+    os.chmod(locked, 0o600)
     kw.ask_file = no_dialog
     autos.Segments = whole_segments
     nalt.get_input_file_path = lambda: paths["mod.ko"]
