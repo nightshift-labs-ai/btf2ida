@@ -165,7 +165,7 @@ All numbers from runs on real kernels; the scripts are in `tests/`.
 | `tests/check_ida_names.py` against the IDAPython stubs of IDA 9.1, 9.2, 9.3, 9.4 (PyPI `idapro` 0.0.5, 0.0.7, 0.0.9, 0.0.11) and 9.5 (`idapro` 0.0.12) | 50 `ida_*` / `idc` module-level names used, 0 missing in each |
 | A compressed kernel chosen as the vmlinux (`tests/check_module.py`) | Debian 11 `nf_tables.ko` (5.10.0-32, no BTF of its own) with its xz `vmlinuz`: 95 imports typed, the same output as with the extracted vmlinux. Debian 13 zstd `vmlinuz`: refused with "install zstd". Ubuntu 24.04 arm64 6.8 `vmlinuz` (gzip `Image`): unpacked, BTF and release banner found |
 | arm64: Debian 13 `nf_tables.ko` (6.12.115+deb13.1-cloud-arm64) with that package's `vmlinuz` (an uncompressed `Image`) as the vmlinux, `tests/check_module.py` | 487 module functions and 137 imports typed; "Not applied: 2" (`memmove` and `strchr`, assembly on arm64) |
-| A BTFHub archive as input: Ubuntu 20.04 `5.8.0-63-generic.btf.tar.xz` (`btf2c.py`) | 49,744 prototypes (+1 written as a comment); header and prototypes compile with gcc |
+| A BTFHub archive as input (for a kernel built without BTF, btf2ida asks for one; headless `--vmlinux`): Ubuntu 20.04 `5.8.0-63-generic.btf.tar.xz` (`btf2c.py`) | 49,744 prototypes (+1 written as a comment); header and prototypes compile with gcc |
 | `tests/test_unpack.py`: synthetic bzImages, EFI zboot images and BTF tar archives | gzip, xz, lzma and bzip2 payloads unpacked; zstd, lz4 and lzo refused with what to install; corrupt, truncated and unknown payloads refused |
 | `tests/test_plugin_stub.py` with fake `ida_*` modules | full flow passes |
 

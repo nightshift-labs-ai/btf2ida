@@ -350,6 +350,25 @@ with tempfile.TemporaryDirectory() as folder:
         raise AssertionError("a module without BTF and without vmlinux must fail")
     except B.BTFError as error:
         assert "--vmlinux" in str(error) and "no BTF of its own" in str(error), error
+    plain = os.path.join(folder, "plain_kernel")                       # a whole kernel built without BTF
+    with open(plain, "wb") as handle:
+        handle.write(tiny_rel([b".text"]))
+    nalt.get_input_file_path = lambda: plain
+    try:
+        m.run_import(None, ask=False)
+        raise AssertionError("a whole kernel without BTF and without a BTF file must fail")
+    except B.BTFError as error:
+        assert "BTFHub" in str(error) and "--vmlinux" in str(error), error
+    message = m.run_import(paths["vmlinux.btf"], ask=False)            # headless: --vmlinux <BTF file>
+    assert "a separate file: btf2ida cannot check" in message and "Prototypes applied" in message, message
+    kw.ask_file = lambda save, default, prompt: paths["vmlinux.btf"] if "has no BTF" in prompt else None
+    assert "a separate file" in m.run_import(None, ask=True)             # interactive: btf2ida asks for the file
+    try:
+        m.run_import(nobtf, ask=False)
+        raise AssertionError("a chosen file without BTF must fail")
+    except B.BTFError as error:
+        assert "has no usable BTF" in str(error), error
+    kw.ask_file = no_dialog
     autos.Segments = whole_segments
     nalt.get_input_file_path = lambda: paths["mod.ko"]
     idc.SetType = lambda ea, d: ea != 0x8000                             # IDA refuses the import's prototype

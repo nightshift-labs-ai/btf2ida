@@ -552,6 +552,29 @@ def bool_name():
         return "_BOOL1"
 
 
+EXTERNAL_PROMPT = ("FILTER BTF|*\nThis kernel has no BTF: choose BTF of this exact kernel build (raw BTF, a vmlinux with "
+                   "BTF, or a BTFHub <release>.btf.tar.xz)")
+
+
+def external_btf(vmlinux, ask):
+    """(BTF, path) from a separate file for a whole kernel that carries none, or (None, None) if none was given."""
+    path = vmlinux
+    if not path and ask:
+        ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
+        path = ida_kernwin.ask_file(False, None, EXTERNAL_PROMPT)
+        ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
+    if not path:
+        return None, None
+    with open(path, "rb") as handle:
+        blob = B.unpack_kernel_image(handle.read(), path)
+    try:
+        return B.load(blob), path
+    except B.NeedsBase:
+        raise B.BTFError("the chosen file %s is a kernel module's split BTF, not the BTF of a whole kernel" % path)
+    except B.BTFError as error:
+        raise B.BTFError("the chosen file %s has no usable BTF (%s)" % (path, error))
+
+
 def run_import(vmlinux=None, ask=True):
     data, source = find_btf(vmlinux, ask)
     if data is None:
@@ -559,9 +582,12 @@ def run_import(vmlinux=None, ask=True):
         if path and not os.path.isfile(path):
             raise B.BTFError("no BTF found in the loaded segments, and the input file %s is not on disk, so btf2ida "
                              "cannot read it or tell whether it is a kernel module. Put the file back at that path." % path)
-        raise B.BTFError("no BTF found in the input file or the loaded segments. For a distribution kernel built "
-                         "without BTF, BTFHub (github.com/aquasecurity/btfhub-archive) has BTF files by kernel release; "
-                         "btf2c.py turns one (<release>.btf.tar.xz) into a C header and prototypes.")
+        data, chosen = external_btf(vmlinux, ask)
+        if data is None:
+            raise B.BTFError("no BTF found in the input file or the loaded segments. For a distribution kernel built "
+                             "without BTF, BTFHub (github.com/aquasecurity/btfhub-archive) has BTF files by kernel "
+                             "release: choose one (<release>.btf.tar.xz) when btf2ida asks (headless: --vmlinux <file>).")
+        source = "%s (a separate file: btf2ida cannot check that it is for this kernel build)" % chosen
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4
     generator = btf2c.Generator(data, pointer_size, bool_name=bool_name())
     # 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate; other
