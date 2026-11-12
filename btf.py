@@ -345,6 +345,7 @@ def unpacker(kind):
 
 
 UNPACKED = ("gzip", "xz", "lzma", "bzip2")
+MAX_UNPACKED = 1 << 30  # 1 GiB: no kernel image is larger; a bigger gzip is not a kernel
 UNPACK_TOOLS = {"zstd": "zstd (unzstd)", "lz4": "lz4", "lzo": "lzop"}
 
 
@@ -392,8 +393,8 @@ def unpack_kernel_image(blob, path):
     if blob[:2] == b"\x1f\x8b":
         try:
             whole = zlib.decompressobj(31)
-            out = whole.decompress(bytes(blob))
-            return out if whole.eof else blob  # not a complete gzip stream: leave the file as it is
+            out = whole.decompress(bytes(blob), MAX_UNPACKED)
+            return out if whole.eof else blob  # incomplete, or larger than any kernel: leave the file as it is
         except zlib.error:
             return blob
     found = bzimage_payload(blob) or zboot_payload(blob)

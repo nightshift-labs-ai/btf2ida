@@ -55,6 +55,9 @@ for bad, words in ((bzimage(b"\xfd7zXZ\x00" + b"\x01" * 50), "could not be unpac
     except B.BTFError as error:
         assert words in str(error), error
 assert B.unpack_kernel_image(gzip.compress(KERNEL), "Image.gz") == KERNEL      # whole-file gzip (arm64 Image.gz)
+saved_max, B.MAX_UNPACKED = B.MAX_UNPACKED, 100
+assert B.unpack_kernel_image(gzip.compress(KERNEL), "big.gz") == gzip.compress(KERNEL)  # over the cap: unchanged
+B.MAX_UNPACKED = saved_max
 assert B.unpack_kernel_image(KERNEL, "vmlinux") is KERNEL                       # anything else: unchanged
 assert B.unpack_kernel_image(b"\x1f\x8b" + b"junk" * 10, "x") == b"\x1f\x8b" + b"junk" * 10  # not really gzip
 def zboot(payload, name):
