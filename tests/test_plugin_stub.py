@@ -413,9 +413,29 @@ idc.get_type = lambda ea: {0x7300: "void __fastcall(void *a1, int a2)", 0x7200: 
 nalt.is_userti = lambda ea: False
 del calls[:]
 idc.SetType = lambda ea, d: calls.append(("settype", ea, d)) or True
+til = types.ModuleType("ida_typeinf")  # IDA's type libraries know til_func(void *p) with one argument
+
+
+class FakeTinfo:
+    def get_named_type(self, til, name):
+        self.name = name
+        return name == "til_func"
+
+    def is_func(self):
+        return True
+
+    def get_nargs(self):
+        return 1
+
+
+til.tinfo_t = FakeTinfo
+sys.modules["ida_typeinf"] = til
+addrs["til_func"] = 0x7500
 res = m.apply_prototypes([("memcpy", "void memcpy(void)"), ("irq_enter_rcu", "void irq_enter_rcu(void)"),
-                          ("has_args", "void has_args(void)"), ("with_args", "int with_args(int x)")])
+                          ("has_args", "void has_args(void)"), ("with_args", "int with_args(int x)"),
+                          ("til_func", "void til_func(void)")])
 typed = sorted(c[1] for c in calls if c[0] == "settype")
-assert typed == [0x7200, 0x7400] and res["void_skipped"] == 2 and res["applied"] == 2, (typed, res)
-print("stub test OK: void(void) prototypes skipped for memcpy and where IDA's type has parameters (2), applied elsewhere")
+assert typed == [0x7200, 0x7400] and res["void_skipped"] == 3 and res["applied"] == 2, (typed, res)
+del sys.modules["ida_typeinf"]
+print("stub test OK: void(void) prototypes skipped for memcpy and where IDA's type or a type library has parameters (3), applied elsewhere")
 print("stub test OK (fake IDA modules)")

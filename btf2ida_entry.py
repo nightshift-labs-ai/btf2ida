@@ -251,17 +251,26 @@ ASM_VOID = frozenset("""memcpy memmove memset __memcpy __memmove __memset memcpy
     __get_user_nocheck_4 __get_user_nocheck_8 __put_user_1 __put_user_2 __put_user_4 __put_user_8
     __put_user_nocheck_1 __put_user_nocheck_2 __put_user_nocheck_4 __put_user_nocheck_8 clear_page_erms
     clear_page_orig clear_page_rep copy_page copy_page_regs copy_mc_enhanced_fast_string copy_mc_fragile
-    copy_to_nontemporal csum_partial_copy_generic rep_movs_alternative rep_stos_alternative""".split())
+    copy_to_nontemporal csum_partial_copy_generic rep_movs_alternative rep_stos_alternative __sw_hweight32
+    __sw_hweight64""".split())
 VOID_VOID = re.compile(r"^void\s+[A-Za-z_][A-Za-z_0-9]*\(void\)$")
 
 
 def void_void_unsafe(address, name, declaration):
-    """True when declaration is "void name(void)" and must not be applied: a known assembly entry point, or IDA's
-    current type at address already lists parameters."""
+    """True when declaration is "void name(void)" and must not be applied: a known assembly entry point, a name
+    IDA's loaded type libraries give a prototype with parameters, or IDA's current type at address already lists
+    parameters."""
     if not VOID_VOID.match(declaration.strip()):
         return False
     if name in ASM_VOID:
         return True
+    try:
+        import ida_typeinf
+        tif = ida_typeinf.tinfo_t()
+        if tif.get_named_type(None, name) and tif.is_func() and tif.get_nargs() > 0:
+            return True
+    except Exception:  # noqa: BLE001  (no type library answer: go on with the current type)
+        pass
     try:
         current = idc.get_type(address) or ""
     except Exception:  # noqa: BLE001  (no type information: apply as before)
