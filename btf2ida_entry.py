@@ -13,6 +13,7 @@ import struct
 import os
 import sys
 
+import ida_auto
 import ida_bytes
 import ida_funcs
 import ida_ida
@@ -497,9 +498,12 @@ def apply_prototypes(prototypes, progress=None, imported=()):
     return result
 
 
-def report(source, generator, failed, result, named=0, cancelled=False, no_prototypes_32=False, no_own_btf=False):
+def report(source, generator, failed, result, named=0, cancelled=False, no_prototypes_32=False, no_own_btf=False,
+           analysis_pending=False):
     stats = generator.stats
     lines = ["CANCELLED: the import stopped early, so only part of what is listed below reached the database."] if cancelled else []
+    if analysis_pending:
+        lines.append(ANALYSIS_PENDING)
     lines += [
         "BTF from %s: %d types" % (source, generator.btf.count),
         "Declarations sent to IDA: %d structs, %d unions, %d enums, %d typedefs (%d rejected by IDA); "
@@ -625,6 +629,8 @@ def external_btf(vmlinux, ask):
 
 
 def run_import(vmlinux=None, ask=True, force=False):
+    # In the IDA window only: headless, idalib has already waited for the analysis, or --no-analysis skipped it.
+    analysis_pending = ask and not ida_auto.auto_is_ok()
     data, source = find_btf(vmlinux, ask, force)
     if data is None:
         path = ida_nalt.get_input_file_path()
@@ -677,7 +683,7 @@ def run_import(vmlinux=None, ask=True, force=False):
     if data.base is not None or source == SOURCE_NO_OWN_BTF:
         result["undefined"] = undefined_in_database()
     return report(source, generator, failed, result, named, cancelled=bool(ida_kernwin.user_cancelled()),
-                  no_prototypes_32=regparm, no_own_btf=source == SOURCE_NO_OWN_BTF)
+                  no_prototypes_32=regparm, no_own_btf=source == SOURCE_NO_OWN_BTF, analysis_pending=analysis_pending)
 
 
 
@@ -695,9 +701,34 @@ def guarded(activate):
             return 0
     return wrapper
 
+ANALYSIS_QUESTION = ("IDA is still analysing this file: functions it has not created yet would get no prototype.\n\n"
+                     "Wait for the analysis to finish first? (No: import now, run BTF2IDA again later)")
+ANALYSIS_PENDING = ("IDA's analysis had not finished: functions it had not created yet got no prototype. Run BTF2IDA "
+                    "again when it has (it re-types the prototypes it set itself).")
+
+
+def wait_for_analysis():
+    """True to go on with the import. While IDA's auto-analysis is still running, functions it has not created yet
+    would be counted as 'not a function start' and get no prototype, so ask whether to wait for it first."""
+    if ida_auto.auto_is_ok():
+        return True
+    answer = ida_kernwin.ask_yn(ida_kernwin.ASKBTN_YES, ANALYSIS_QUESTION)  # printf-style: the text has no '%'
+    if answer == ida_kernwin.ASKBTN_CANCEL:
+        return False
+    if answer == ida_kernwin.ASKBTN_YES:
+        ida_kernwin.show_wait_box("BTF2IDA: waiting for IDA's analysis to finish")
+        try:
+            return bool(ida_auto.auto_wait())  # False: the user clicked Cancel in the wait box
+        finally:
+            ida_kernwin.hide_wait_box()
+    return True
+
+
 class ApplyBTF(ida_kernwin.action_handler_t):
     @guarded
     def activate(self, ctx):
+        if not wait_for_analysis():
+            return 0
         problem = None
         ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
         try:

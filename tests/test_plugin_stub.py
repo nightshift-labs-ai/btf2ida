@@ -197,7 +197,11 @@ iname.set_name = lambda ea, n, f: calls.append(("set_name", ea, n, f)) or True
 seg = types.ModuleType("ida_segment")
 seg.SEG_XTRN, seg.SEG_CODE = 1, 2                                      # values from the SDK's segment.hpp
 seg.segtype = lambda ea: calls.append(("segtype", ea)) or (seg.SEG_XTRN if 0x8000 <= ea < 0x9000 else seg.SEG_CODE)
-sys.modules.update(ida_kernwin=kw, ida_idaapi=api, ida_ida=ida, idc=idc, ida_funcs=funcs, idautils=autos, ida_bytes=dbytes, ida_nalt=nalt, ida_name=iname, ida_segment=seg)
+auto = types.ModuleType("ida_auto")
+auto.auto_is_ok = lambda: True                                         # IDA's auto-analysis has finished
+auto.auto_wait = lambda: True
+sys.modules.update(ida_kernwin=kw, ida_idaapi=api, ida_ida=ida, idc=idc, ida_funcs=funcs, idautils=autos, ida_bytes=dbytes, ida_nalt=nalt, ida_name=iname, ida_segment=seg,
+                   ida_auto=auto)
 
 import btf2ida_entry as m  # noqa: E402
 
@@ -213,6 +217,40 @@ assert "applied to 1 functions" in message and "not in this database 1" in messa
 assert m.import_in_batches(["a;", "BAD;", "b;"], lambda t: t.count("BAD"), batch=2) == ["BAD;"]
 assert "Named 0 exported functions" in message, message
 assert "imported kernel functions" not in message and not [c for c in calls if c[0] == "segtype"], "a whole kernel never looks for externs"
+assert "analysis had not finished" not in message and not [c for c in calls if c[0] == "ask_yn"], message
+# IDA still analysing: functions not created yet would get no prototype, so ask first (default Yes: wait for it).
+analysed = [False]
+hide, show = kw.hide_wait_box, kw.show_wait_box
+kw.hide_wait_box = lambda: calls.append(("hide",))
+kw.show_wait_box = lambda text: calls.append(("show", text))
+auto.auto_is_ok = lambda: analysed[0]
+for answer, waited in ((kw.ASKBTN_YES, True), (kw.ASKBTN_YES, False), (kw.ASKBTN_NO, False), (kw.ASKBTN_CANCEL, False)):
+    analysed[0] = False
+    del calls[:]
+    kw.ask_yn = lambda deflt, text, answer=answer: calls.append(("ask_yn", deflt, text)) or answer
+    auto.auto_wait = lambda waited=waited: calls.append(("auto_wait",)) or analysed.__setitem__(0, waited) or waited
+    returned = m.ApplyBTF().activate(None)
+    asked = [c for c in calls if c[0] == "ask_yn"]
+    assert len(asked) == 1 and asked[0][1] == kw.ASKBTN_YES and "still analysing" in asked[0][2] and "%" not in asked[0][2], asked
+    parses = [i for i, c in enumerate(calls) if c[0] == "parse"]
+    infos = [c[1] for c in calls if c[0] == "info"]
+    assert calls[0] == asked[0], calls  # asked before anything else happens
+    if answer == kw.ASKBTN_YES:  # auto_wait inside its own wait box; Cancel there (False) stops the run
+        assert calls[1:4] == [("show", "BTF2IDA: waiting for IDA's analysis to finish"), ("auto_wait",), ("hide",)], calls
+    else:
+        assert ("auto_wait",) not in calls, calls
+    if answer == kw.ASKBTN_CANCEL or not waited and answer == kw.ASKBTN_YES:
+        assert returned == 0 and not parses and not infos, calls
+    else:
+        assert returned == 1 and parses and len(infos) == 1, calls
+        assert ("Run BTF2IDA again" in infos[0] and "analysis had not finished" in infos[0]) == (answer == kw.ASKBTN_NO), infos
+analysed[0] = False
+del calls[:]
+assert "analysis had not finished" not in m.run_import(None, ask=False), "headless: idalib waited, or --no-analysis chose not to"
+assert not [c for c in calls if c[0] in ("ask_yn", "auto_wait")], calls
+kw.hide_wait_box, kw.show_wait_box = hide, show
+auto.auto_is_ok, auto.auto_wait = (lambda: True), (lambda: True)
+kw.ask_yn = lambda deflt, text: calls.append(("ask_yn", deflt, text)) or kw.ASKBTN_NO
 
 # A kernel module (split BTF): its own functions are typed and counted as before. vmlinux's functions are
 # typed only where IDA lists them in an extern segment; the others are not counted as missing.

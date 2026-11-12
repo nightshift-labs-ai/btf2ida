@@ -14,7 +14,7 @@ import re
 import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-MODULES = ("ida_kernwin", "ida_idaapi", "ida_nalt", "ida_name", "ida_bytes", "ida_funcs", "ida_ida", "ida_segment", "ida_typeinf",
+MODULES = ("ida_auto", "ida_kernwin", "ida_idaapi", "ida_nalt", "ida_name", "ida_bytes", "ida_funcs", "ida_ida", "ida_segment", "ida_typeinf",
            "ida_netnode", "idautils", "idc")
 
 
