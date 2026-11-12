@@ -241,6 +241,36 @@ with tempfile.TemporaryDirectory() as folder:  # the gcc layout proof of tests/c
         run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"),
                               os.path.join(folder, name)], capture_output=True, text=True)
         assert run.returncode == code and words in run.stdout + run.stderr and "Traceback" not in run.stderr, (name, run.stdout, run.stderr)
+# What the plugin compares with IDA's layout after the import (Generator.bitfield_layout): each struct/union with a
+# group of bitfields in its own scope or in an inline anonymous member, with its size and the absolute bit offset and
+# width of each named C bitfield (a named inline member adds "name." to the path; [] when all are raw bytes). A
+# bitfield directly in a union is never a C bitfield and is not listed. Generator.struct_text keeps each declaration.
+n = Build()
+n.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                   # 1
+n.t("unsigned char", 1, 0, 1, struct.pack("<I", 8))                                    # 2
+n.t("", 4, 2, 4, kflag=1, extra=struct.pack("<IIIIII", n.s("a"), 2, 3 << 24, n.s("b"), 2, 5 << 24 | 3))  # 3  anonymous
+n.t("", 4, 1, 4, struct.pack("<III", 0, 6, 8))                                       # 4  anonymous, member 'inner'
+n.t("outer", 4, 4, 16, struct.pack("<" + "III" * 4, n.s("x"), 1, 0, 0, 3, 32, n.s("inner"), 4, 64, n.s("y"), 1, 96))  # 5
+n.t("", 4, 1, 3, kflag=1, extra=struct.pack("<III", n.s("c"), 2, 2 << 24 | 1))         # 6  anonymous, inside 4 at byte 1
+n.t("rawonly", 4, 2, 8, kflag=1, extra=struct.pack("<IIIIII", n.s("big"), 1, 20 << 24, n.s("z"), 1, 32))  # 7  3 raw bytes
+n.t("u", 5, 2, 4, kflag=1, extra=struct.pack("<IIIIII", n.s("p"), 1, 3 << 24, n.s("q"), 1, 0))  # 8  union: p not listed
+ngen = btf2c.Generator(B.BTF(n.blob()))
+ngen.declarations()
+assert ngen.bitfield_layout == {"outer": (16, [("a", 32, 3), ("b", 35, 5), ("inner.c", 73, 2)]), "rawonly": (8, [])}, ngen.bitfield_layout
+assert set(ngen.struct_text) == {"outer", "rawonly", "u"} and all(text in ngen.body for text in ngen.struct_text.values())
+nraw = btf2c.Generator(B.BTF(n.blob()), bitfields=False)
+nraw.declarations()
+assert nraw.bitfield_layout == {"outer": (16, []), "rawonly": (8, [])}, nraw.bitfield_layout
+assert nraw.struct_text["outer"].startswith("struct outer {\n") and "__bits_0_n2[1]; /* a:3@0, b:5@3 */" in nraw.struct_text["outer"] \
+    and "b:5;" not in nraw.struct_text["outer"], nraw.struct_text["outer"]
+with tempfile.TemporaryDirectory() as folder:  # check_bitfields.py finds the same types and bitfields on its own
+    path = os.path.join(folder, "nested.btf")
+    with open(path, "wb") as handle:
+        handle.write(n.blob())
+    run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"), path],
+                         capture_output=True, text=True)
+    assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
+    assert "(Generator.bitfield_layout) agrees: yes (2 types with bitfields, 1 of them with C bitfields, 3 C bitfields)" in run.stdout, run.stdout
 # The toy demo's expected header is what btf2c.py writes for it now.
 toy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demo")
 with open(os.path.join(toy, "toy_kernel.elf"), "rb") as handle:

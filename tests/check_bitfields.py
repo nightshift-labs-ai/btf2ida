@@ -82,6 +82,7 @@ class Walk:
         self.raw_fields = 0
         self.union_fields = 0
         self.dropped = 0
+        self.tags = set()  # outer tags with a group of bitfields in a struct scope (C bitfields or raw bytes)
 
     def outer(self, t):
         kind = "union" if t.kind == B.UNION else "struct"
@@ -115,6 +116,7 @@ class Walk:
                     self.dropped += len(fields)
                     continue
                 cursor = end
+                self.tags.add(outer[1])
                 # Which bitfields become C bitfields is the generator's decision, asked here rather than copied, so a
                 # wrong decision (an overlap converted, say) reaches the gcc checks below instead of being repeated.
                 converted = []
@@ -295,6 +297,22 @@ def main(argv=None):
     ok = (converted_fields, walk.integers, walk.raw_fields + walk.union_fields, walk.raw_runs) == \
         (stats["bitfields"], stats["bitfield_integers"], stats["bitfields_as_storage"], stats["bitfield_raw_runs"])
     print("counts agree with the generator: %s" % ("yes" if ok else "NO"))
+    # The layout the plugin compares with IDA's after the import (Generator.bitfield_layout): the same types with
+    # bitfield groups, and the same C bitfields at the same absolute bit offsets as this walk, whose offsets the gcc
+    # runs below check.
+    sizes = {gen.tags[t.id]: t.size for t in data if t.kind in (B.STRUCT, B.UNION) and t.id in gen.done}
+    walked = {}
+    for (kind, tag), path, base, fields, _ in walk.groups:
+        walked.setdefault(tag, (sizes[tag], []))[1].extend(
+            ((path[1:] + "." if path else "") + btf2c.ident(name), base * 8 + bit, width) for name, bit, width, _ in fields if name)
+    layout = gen.bitfield_layout
+    same = {tag: (size, sorted(f)) for tag, (size, f) in walked.items() if f} == \
+        {tag: (size, sorted(f)) for tag, (size, f) in layout.items() if f} and walk.tags == set(layout) and \
+        all(size == sizes[tag] for tag, (size, _) in layout.items())
+    print("layout the plugin checks in IDA (Generator.bitfield_layout) agrees: %s (%d types with bitfields, %d of them "
+          "with C bitfields, %d C bitfields)" % ("yes" if same else "NO", len(layout), sum(1 for _, f in layout.values() if f),
+                                                 sum(len(f) for _, f in layout.values())))
+    ok = ok and same
     print("fields checked: %d (%d signed), %d asserts (sizeof + offsetof of the next named member)" % (fields_checked, signed_fields, n_asserts))
     gcc = ["gcc", "-include", "stdbool.h", "-w"]
     results = [run(gcc + ["-fsyntax-only", os.path.join(folder, "asserts_new.c")], "asserts against the new header"),
