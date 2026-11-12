@@ -569,8 +569,12 @@ def input_releases():
     """Kernel releases named by 'Linux version' banners in the input file, or an empty set."""
     try:
         with open(ida_nalt.get_input_file_path() or "", "rb") as handle:
-            return B.kernel_releases(handle.read())
-    except (OSError, TypeError):
+            view = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)  # the input may be a big memory image
+            try:
+                return B.kernel_releases(view)
+            finally:
+                view.close()
+    except (OSError, TypeError, ValueError):  # ValueError: empty file
         return set()
 
 
@@ -612,10 +616,14 @@ def run_import(vmlinux=None, ask=True):
             raise B.BTFError("no BTF found in the input file or the loaded segments. For a distribution kernel built "
                              "without BTF, BTFHub (github.com/aquasecurity/btfhub-archive) has BTF files by kernel "
                              "release: choose one (<release>.btf.tar.xz) when btf2ida asks (headless: --vmlinux <file>).")
-        theirs, ours = getattr(data, "external_releases", set()), input_releases()
+        theirs = getattr(data, "external_releases", set())
+        ours = input_releases() if theirs else set()
         if theirs and ours and not theirs & ours:
             source = "%s (WARNING: this kernel is %s, the chosen file is for %s; types and prototypes may not match)" % (
                 chosen, " / ".join(sorted(ours)), " / ".join(sorted(theirs)))
+        elif theirs and len(ours) > 1:  # a memory image can also name releases of earlier boots in its logs
+            source = "%s (matches one of the releases named in the input file: %s; check it is the running kernel)" % (
+                chosen, " / ".join(sorted(ours)))
         elif theirs and ours:
             source = "%s (same kernel release as this kernel: %s)" % (chosen, " / ".join(sorted(theirs & ours)))
         else:

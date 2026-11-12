@@ -371,6 +371,9 @@ with tempfile.TemporaryDirectory() as folder:
     same = os.path.join(folder, "5.8.0-63-generic.btf")
     os.rename(hub, same)
     assert "same kernel release as this kernel: 5.8.0-63-generic" in m.run_import(same, ask=False)
+    with open(plain, "ab") as handle:                                   # an older banner in a log of the image
+        handle.write(b"MESSAGE=Linux version 5.4.0-1-generic (b@h) #1\0")
+    assert "matches one of the releases named in the input file" in m.run_import(same, ask=False)
     assert m.named_release("/x/5.8.0-63-generic.btf.tar.xz") == {"5.8.0-63-generic"} and m.named_release("/x/vmlinux") == set()
     assert m.named_release("/x/vmlinux.btf") == set(), "not a release"
     kw.ask_file = lambda save, default, prompt: paths["vmlinux.btf"] if "built without BTF" in prompt else None
