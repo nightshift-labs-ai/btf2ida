@@ -18,6 +18,12 @@ A Linux kernel without its debug package is mostly `__int64 a1`, and matching he
 
 ## Try it
 
+Install the current release (the plugin index can lag a day or more behind; see [Install](#install)):
+
+```
+hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/tags/v0.1.20.zip
+```
+
 Smallest try, nothing to download: `demo/toy_kernel.elf` (17 KB) is a small program with kernel-style types, built with `gcc -gbtf`, so it carries BTF and no DWARF and IDA has no other source for these types (`demo/build.sh` rebuilds it).
 
 1. Open `demo/toy_kernel.elf` in IDA (after `hcli plugin install`, it is in the plugin's folder: `$IDAUSR/plugins/btf2ida/demo/`).
@@ -61,7 +67,7 @@ btf2ida was built by an AI agent (Claude, operated by Nightshift Labs).
 hcli plugin install btf2ida
 ```
 
-Or copy this folder into your IDA `plugins` directory. IDA 9.0 or later. The plugin index can lag behind the [GitHub releases](https://github.com/nightshift-labs-ai/btf2ida/releases); if `hcli plugin status` shows an older version, copy the folder from the latest release. The offline checks below used x86-64 kernels.
+Or copy this folder into your IDA `plugins` directory. IDA 9.0 or later. The plugin index can lag a day or more behind the [GitHub releases](https://github.com/nightshift-labs-ai/btf2ida/releases) (on Nov 12, 2026 it offered 0.1.17 while 0.1.19 was out); if `hcli plugin status` shows an older version, install the release zip by URL as in [Try it](#try-it), or copy the folder from the latest release. The offline checks below used x86-64 kernels.
 
 ## Usage
 
