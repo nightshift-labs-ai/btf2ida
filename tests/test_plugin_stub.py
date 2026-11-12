@@ -214,6 +214,17 @@ with tempfile.TemporaryDirectory() as folder:  # the gcc layout proof of tests/c
                          capture_output=True, text=True)
     assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
     assert "fields checked: 19 (0 signed)" in run.stdout and "counts agree with the generator: yes" in run.stdout, run.stdout
+    sc = Build()  # old pahole (Debian 11 5.10, GKI 6.1) encodes `signed char` 0: still signed; plain char as BTF says
+    sc.t("signed char", 1, 0, 1, struct.pack("<I", 8))                                    # 1
+    sc.t("char", 1, 0, 1, struct.pack("<I", 8))                                           # 2
+    sc.t("sc", 4, 2, 1, kflag=1, extra=struct.pack("<IIIIII", sc.s("x"), 1, 5 << 24 | 0, sc.s("y"), 2, 3 << 24 | 5))
+    assert "  signed char x:5;\n  unsigned char y:3;\n" in btf2c.header(btf2c.Generator(B.BTF(sc.blob())))
+    path = os.path.join(folder, "sc.btf")
+    with open(path, "wb") as handle:
+        handle.write(sc.blob())
+    run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"), path],
+                         capture_output=True, text=True)  # gcc reads x back negative
+    assert run.returncode == 0 and "fields checked: 2 (1 signed)" in run.stdout and run.stdout.rstrip().endswith("PASS"), run.stdout
     plain = Build()  # no bitfield at all: nothing to check is not a failure
     plain.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))
     plain.t("plain", 4, 1, 4, struct.pack("<III", plain.s("x"), 1, 0))

@@ -61,10 +61,11 @@ def bits(btf, parent, offset, type_id):
 
 
 def signed_of(btf, type_id):
-    """Signedness from the BTF: int encoding (bool is unsigned), or the enum's signed flag; None otherwise."""
+    """Signedness from the BTF: int encoding (bool is unsigned; `signed char`, which old pahole encodes 0, is
+    signed), or the enum's signed flag; None otherwise."""
     t = resolved(btf, type_id)
     if t is not None and t.kind == B.INT:
-        return bool((t.data >> 24) & B.INT_SIGNED) and not (t.data >> 24) & B.INT_BOOL
+        return bool((t.data >> 24) & B.INT_SIGNED or t.name == "signed char") and not (t.data >> 24) & B.INT_BOOL
     if t is not None and t.kind in (B.ENUM, B.ENUM64):
         return bool(t.kflag)
     return None

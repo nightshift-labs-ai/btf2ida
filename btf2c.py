@@ -294,11 +294,15 @@ class Generator:
         return offset, 0
 
     def bitfield_signed(self, type_id):
-        """True or False for a signed or unsigned bitfield of this BTF type; None when it is not an integer or enum."""
+        """True or False for a signed or unsigned bitfield of this BTF type; None when it is not an integer or enum.
+
+        pahole before 1.17 or so encodes `signed char` with no encoding bits (Debian 11 5.10, Android GKI 6.1), so that
+        name counts as signed too. The INT_BOOL test is defensive: the kernel's BTF verifier allows only one encoding
+        bit, but btf2c also reads files no kernel has checked."""
         t = self.resolve(type_id)
         if t is not None and t.kind == B.INT:
             encoding = t.data >> 24
-            return bool(encoding & B.INT_SIGNED) and not encoding & B.INT_BOOL
+            return bool(encoding & B.INT_SIGNED or t.name == "signed char") and not encoding & B.INT_BOOL
         if t is not None and t.kind in (B.ENUM, B.ENUM64):
             return bool(t.kflag)  # BTF marks an enum with negative values as signed (kflag, Linux 6.0+)
         return None
