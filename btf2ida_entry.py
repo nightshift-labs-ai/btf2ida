@@ -652,7 +652,8 @@ def external_btf(vmlinux, ask):
 
 def run_import(vmlinux=None, ask=True, force=False):
     # In the IDA window only: headless, idalib has already waited for the analysis, or --no-analysis skipped it.
-    analysis_pending = ask and not ida_auto.auto_is_ok()
+    # With auto-analysis turned off by the user, its queues can stay full: that is not "not finished yet".
+    analysis_pending = ask and ida_ida.inf_is_auto_enabled() and not ida_auto.auto_is_ok()
     data, source = find_btf(vmlinux, ask, force)
     if data is None:
         path = ida_nalt.get_input_file_path()
@@ -731,8 +732,9 @@ ANALYSIS_PENDING = ("IDA's analysis had not finished: functions it had not creat
 
 def wait_for_analysis():
     """True to go on with the import. While IDA's auto-analysis is still running, functions it has not created yet
-    would be counted as 'not a function start' and get no prototype, so ask whether to wait for it first."""
-    if ida_auto.auto_is_ok():
+    would be counted as 'not a function start' and get no prototype, so ask whether to wait for it first. Not when
+    the user turned auto-analysis off (Options > General > Analysis): its queues may never empty then."""
+    if ida_auto.auto_is_ok() or not ida_ida.inf_is_auto_enabled():
         return True
     answer = ida_kernwin.ask_yn(ida_kernwin.ASKBTN_YES, ANALYSIS_QUESTION)  # printf-style: the text has no '%'
     if answer == ida_kernwin.ASKBTN_CANCEL:

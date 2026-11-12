@@ -72,7 +72,7 @@ Or copy this folder into your IDA `plugins` directory. IDA 9.0 or later. The plu
 
 ## Usage
 
-Open a kernel or kernel module in IDA, then **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**. If IDA is still analysing the file, btf2ida first asks whether to wait for the analysis to finish (functions IDA has not created yet would get no prototype). A summary says how many types IDA accepted and how many prototypes were applied.
+Open a kernel or kernel module in IDA, then **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**. If IDA is still analysing the file (and auto-analysis is not turned off), btf2ida first asks whether to wait for the analysis to finish (functions IDA has not created yet would get no prototype). A summary says how many types IDA accepted and how many prototypes were applied.
 
 Functions the compiler rewrote (`.isra`, `.constprop`, `.part`, `.cold`) are left untyped on purpose: their calling convention may differ from the source signature.
 
@@ -167,8 +167,8 @@ All numbers from runs on real kernels; the scripts are in `tests/`.
 | Public x86-64 Android GKI kernel 6.1.84 (`kernel-6.1` + its `System.map`) | 134,947 BTF types; 58,909 of 61,982 named kernel functions (95.0%) have a BTF prototype to apply (names from `System.map`, which the plugin does not read: in IDA the kernel needs its symbols, for example via vmlinux-to-elf) |
 | `tests/check_ksymtab.py`: names from `__ksymtab` of a stripped (`objcopy -S`) vmlinux vs the debug vmlinux's symbol table | Debian 13 6.12: 10,497 of 10,497 exported code addresses match, 10,333 have a BTF prototype; Ubuntu 26.04 7.0: 14,717 of 14,717 (writable code-flagged sections excluded), 13,865 |
 | `tests/test_ksymtab.py`: synthetic ELFs, no kernel needed | all four `__ksymtab` entry layouts (place-relative 12 and 8 bytes, absolute 16 and 24) give the right names; GPL table read; code, data and writable code told apart; relocatable files, missing strings and non-ELF input refused |
-| `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 68 IDA API names used (module functions, constants and the methods btf2ida calls), 0 missing |
-| `tests/check_ida_names.py` against the IDAPython stubs of IDA 9.1, 9.2, 9.3, 9.4 (PyPI `idapro` 0.0.5, 0.0.7, 0.0.9, 0.0.11) and 9.5 (`idapro` 0.0.12) | 56 `ida_*` / `idc` module-level names used, 0 missing in each |
+| `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 69 IDA API names used (module functions, constants and the methods btf2ida calls), 0 missing |
+| `tests/check_ida_names.py` against the IDAPython stubs of IDA 9.1, 9.2, 9.3, 9.4 (PyPI `idapro` 0.0.5, 0.0.7, 0.0.9, 0.0.11) and 9.5 (`idapro` 0.0.12) | 57 `ida_*` / `idc` module-level names used, 0 missing in each |
 | A compressed kernel chosen as the vmlinux (`tests/check_module.py`) | Debian 11 `nf_tables.ko` (5.10.0-32, no BTF of its own) with its xz `vmlinuz`: 95 imports typed, the same output as with the extracted vmlinux. Debian 13 zstd `vmlinuz`: refused with "install zstd". Ubuntu 24.04 arm64 6.8 `vmlinuz` (gzip `Image`): unpacked, BTF and release banner found |
 | arm64: Debian 13 `nf_tables.ko` (6.12.115+deb13.1-cloud-arm64) with that package's `vmlinuz` (an uncompressed `Image`) as the vmlinux, `tests/check_module.py` | 487 module functions and 137 imports typed; "Not applied: 2" (`memmove` and `strchr`, assembly on arm64) |
 | A BTFHub archive as input (for a kernel built without BTF, btf2ida asks for one; headless `--vmlinux`): Ubuntu 20.04 `5.8.0-63-generic.btf.tar.xz` (`btf2c.py`) | 49,744 prototypes (+1 written as a comment); header and prototypes compile with gcc |

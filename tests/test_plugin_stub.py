@@ -170,6 +170,7 @@ api.PLUGIN_KEEP = 2
 api.PLUGIN_HIDE = 0x10
 ida = types.ModuleType("ida_ida")
 ida.inf_is_64bit = lambda: True
+ida.inf_is_auto_enabled = lambda: True                                # Options > General > Analysis > Enabled
 idc = types.ModuleType("idc")
 idc.PT_SIL, idc.PT_PAK1, idc.BADADDR = 1, 0x10, -1
 idc.parse_decls = lambda text, flags: calls.append(("parse", text, flags)) or text.count("struct broken")
@@ -244,6 +245,15 @@ for answer, waited in ((kw.ASKBTN_YES, True), (kw.ASKBTN_YES, False), (kw.ASKBTN
     else:
         assert returned == 1 and parses and len(infos) == 1, calls
         assert ("Run BTF2IDA again" in infos[0] and "analysis had not finished" in infos[0]) == (answer == kw.ASKBTN_NO), infos
+# Auto-analysis turned off by the user: its queues may never empty, so no question and no "not finished" line.
+analysed[0] = False
+ida.inf_is_auto_enabled = lambda: False
+del calls[:]
+assert m.ApplyBTF().activate(None) == 1
+infos = [c[1] for c in calls if c[0] == "info"]
+assert not [c for c in calls if c[0] in ("ask_yn", "auto_wait") or "waiting for IDA" in str(c)], calls
+assert len(infos) == 1 and "analysis had not finished" not in infos[0], infos
+ida.inf_is_auto_enabled = lambda: True
 analysed[0] = False
 del calls[:]
 assert "analysis had not finished" not in m.run_import(None, ask=False), "headless: idalib waited, or --no-analysis chose not to"
