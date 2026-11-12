@@ -69,6 +69,11 @@ def main():
     used |= {"ida_kernwin.action_handler_t.activate", "ida_kernwin.action_handler_t.update"}
     used |= {"ida_typeinf.tinfo_t.deserialize", "ida_typeinf.tinfo_t.is_func", "ida_typeinf.tinfo_t.get_nargs",
              "ida_netnode.netnode.altval_ea", "ida_netnode.netnode.altset_ea", "ida_netnode.netnode.altdel_ea"}
+    # The bitfield layout check after the import (ida_layout, replace_type).
+    used |= {"ida_typeinf.tinfo_t.get_named_type", "ida_typeinf.tinfo_t.get_size", "ida_typeinf.tinfo_t.get_udt_details",
+             "ida_typeinf.tinfo_t.is_anonymous_udt", "ida_typeinf.tinfo_t.set_named_type", "ida_typeinf.udm_t.is_bitfield",
+             "ida_typeinf.udm_t.is_anonymous_udm", "ida_typeinf.udm_t.name", "ida_typeinf.udm_t.offset", "ida_typeinf.udm_t.size",
+             "ida_typeinf.udm_t.type"}
     missing = sorted(used - known)
     for name in missing:
         print("NOT IN OFFICIAL API:", name)
