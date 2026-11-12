@@ -361,6 +361,18 @@ with tempfile.TemporaryDirectory() as folder:
         assert "BTFHub" in str(error) and "--vmlinux" in str(error), error
     message = m.run_import(paths["vmlinux.btf"], ask=False)            # headless: --vmlinux <BTF file>
     assert "a separate file: btf2ida cannot check" in message and "Prototypes applied" in message, message
+    with open(plain, "wb") as handle:                                   # the kernel names its release in a banner
+        handle.write(tiny_rel([b".text"]) + b"Linux version 5.8.0-63-generic (b@h) #1\0")
+    hub = os.path.join(folder, "5.4.0-1-generic.btf")                  # BTFHub naming, another release
+    with open(paths["vmlinux.btf"], "rb") as source_handle, open(hub, "wb") as handle:
+        handle.write(source_handle.read())
+    message = m.run_import(hub, ask=False)
+    assert "WARNING: this kernel is 5.8.0-63-generic, the chosen file is for 5.4.0-1-generic" in message, message
+    same = os.path.join(folder, "5.8.0-63-generic.btf")
+    os.rename(hub, same)
+    assert "same kernel release as this kernel: 5.8.0-63-generic" in m.run_import(same, ask=False)
+    assert m.named_release("/x/5.8.0-63-generic.btf.tar.xz") == {"5.8.0-63-generic"} and m.named_release("/x/vmlinux") == set()
+    assert m.named_release("/x/vmlinux.btf") == set(), "not a release"
     kw.ask_file = lambda save, default, prompt: paths["vmlinux.btf"] if "has no BTF" in prompt else None
     assert "a separate file" in m.run_import(None, ask=True)             # interactive: btf2ida asks for the file
     try:

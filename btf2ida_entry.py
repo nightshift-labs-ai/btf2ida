@@ -556,6 +556,24 @@ EXTERNAL_PROMPT = ("FILTER BTF|*\nThis kernel has no BTF: choose BTF of this exa
                    "BTF, or a BTFHub <release>.btf.tar.xz)")
 
 
+def named_release(path):
+    """{release} from a BTFHub-style file name (<release>.btf.tar.xz, <release>.btf), else an empty set."""
+    name = os.path.basename(path)
+    for suffix in (".btf.tar.xz", ".btf.tar.gz", ".btf.tar", ".btf"):
+        if name.endswith(suffix) and name[:1].isdigit():  # a release starts with its version (5.8.0-63-generic)
+            return {name[:-len(suffix)]}
+    return set()
+
+
+def input_releases():
+    """Kernel releases named by 'Linux version' banners in the input file, or an empty set."""
+    try:
+        with open(ida_nalt.get_input_file_path() or "", "rb") as handle:
+            return B.kernel_releases(handle.read())
+    except (OSError, TypeError):
+        return set()
+
+
 def external_btf(vmlinux, ask):
     """(BTF, path) from a separate file for a whole kernel that carries none, or (None, None) if none was given."""
     path = vmlinux
@@ -571,7 +589,9 @@ def external_btf(vmlinux, ask):
     except OSError as error:
         raise B.BTFError("cannot read the chosen file %s (%s)" % (path, error.strerror or error))
     try:
-        return B.load(blob), path
+        data = B.load(blob)
+        data.external_releases = B.kernel_releases(blob) | named_release(path)
+        return data, path
     except B.NeedsBase:
         raise B.BTFError("the chosen file %s is a kernel module's split BTF, not the BTF of a whole kernel" % path)
     except B.BTFError as error:
@@ -590,7 +610,14 @@ def run_import(vmlinux=None, ask=True):
             raise B.BTFError("no BTF found in the input file or the loaded segments. For a distribution kernel built "
                              "without BTF, BTFHub (github.com/aquasecurity/btfhub-archive) has BTF files by kernel "
                              "release: choose one (<release>.btf.tar.xz) when btf2ida asks (headless: --vmlinux <file>).")
-        source = "%s (a separate file: btf2ida cannot check that it is for this kernel build)" % chosen
+        theirs, ours = getattr(data, "external_releases", set()), input_releases()
+        if theirs and ours and not theirs & ours:
+            source = "%s (WARNING: this kernel is %s, the chosen file is for %s; types and prototypes may not match)" % (
+                chosen, " / ".join(sorted(ours)), " / ".join(sorted(theirs)))
+        elif theirs and ours:
+            source = "%s (same kernel release as this kernel: %s)" % (chosen, " / ".join(sorted(theirs & ours)))
+        else:
+            source = "%s (a separate file: btf2ida cannot check that it is for this kernel build)" % chosen
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4
     generator = btf2c.Generator(data, pointer_size, bool_name=bool_name())
     # 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate; other
