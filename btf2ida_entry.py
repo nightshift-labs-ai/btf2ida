@@ -245,7 +245,8 @@ def in_extern_segment(address):
 
 # BTF records assembly functions as "void f(void)" (pahole has no C prototype for them), the same record as a real
 # void f(void). Applying it to memcpy & co. would wipe the arguments at every call, so btf2ida skips such a prototype
-# for these known x86/arm64 assembly entry points and wherever IDA's current type already has parameters.
+# for these known assembly entry points, for names IDA's type libraries give parameters, and wherever IDA's current
+# type already has parameters.
 ASM_VOID = frozenset("""memcpy memmove memset __memcpy __memmove __memset memcpy_orig memset_orig
     __get_user_1 __get_user_2 __get_user_4 __get_user_8 __get_user_nocheck_1 __get_user_nocheck_2
     __get_user_nocheck_4 __get_user_nocheck_8 __put_user_1 __put_user_2 __put_user_4 __put_user_8
