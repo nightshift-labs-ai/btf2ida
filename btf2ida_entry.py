@@ -297,10 +297,10 @@ VOID_VOID = re.compile(r"^void\s+[A-Za-z_][A-Za-z_0-9]*\(void\)$")
 
 def library_prototype(name):
     """The prototype IDA's loaded type libraries hold for the function symbol `name` (memcpy in gnulnx_x64), or None.
-    Prototypes are symbols in a type library (NTF_SYMM), not type names."""
+    Prototypes are symbols in a type library (NTF_SYMU: by the plain C name), not type names."""
     try:
         import ida_typeinf
-        found = ida_typeinf.get_named_type(None, name, ida_typeinf.NTF_SYMM)
+        found = ida_typeinf.get_named_type(None, name, ida_typeinf.NTF_SYMU)
         tif = ida_typeinf.tinfo_t()
         if found and tif.deserialize(None, found[1], found[2]) and tif.is_func():
             return tif
@@ -548,7 +548,9 @@ def run_import(vmlinux=None, ask=True):
                              "cannot read it or tell whether it is a kernel module. Put the file back at that path." % path)
         raise B.BTFError("no BTF found in the input file or the loaded segments.")
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4
-    generator = btf2c.Generator(data, pointer_size)
+    # IDA's `bool` takes its size from the database's compiler setting; _BOOL1 is IDA's bool of exactly 1 byte (BTF's).
+    bool_size = getattr(ida_ida, "inf_get_cc_size_b", lambda: 1)()
+    generator = btf2c.Generator(data, pointer_size, bool_name="bool" if bool_size == 1 else "_BOOL1")
     # 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate; other
     # 32-bit kernels (ARM, MIPS, RISC-V) use their standard C calling convention. Unknown processor: treat as x86.
     procname = (getattr(ida_ida, "inf_get_procname", lambda: None)() or "").lower()

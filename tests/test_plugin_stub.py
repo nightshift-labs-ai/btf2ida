@@ -416,9 +416,9 @@ nalt.is_userti = lambda ea: False
 del calls[:]
 idc.SetType = lambda ea, d: calls.append(("settype", ea, d)) or True
 til = types.ModuleType("ida_typeinf")  # IDA's type libraries know the SYMBOL til_func(void *p) (one argument)
-til.NTF_SYMM, til.NTF_TYPE, til.TINFO_GUESSED = 0, 1, 0
+til.NTF_SYMM, til.NTF_SYMU, til.NTF_TYPE, til.TINFO_GUESSED = 0, 8, 1, 0
 library = {"til_func"}
-til.get_named_type = lambda t, name, flags: (1, b"T:" + name.encode(), b"", "", "", 0, 0) if flags == til.NTF_SYMM and name in library else None
+til.get_named_type = lambda t, name, flags: (1, b"T:" + name.encode(), b"", "", "", 0, 0) if flags == til.NTF_SYMU and name in library else None
 
 
 class FakeTinfo:
@@ -516,9 +516,9 @@ def del_tinfo(ea):
 
 nalt.del_tinfo = del_tinfo
 til = types.ModuleType("ida_typeinf")
-til.NTF_SYMM, til.TINFO_GUESSED = 0, 0
+til.NTF_SYMM, til.NTF_SYMU, til.TINFO_GUESSED = 0, 8, 0
 library.add("memcpy")
-til.get_named_type = lambda t, name, flags: (1, b"T:" + name.encode(), b"", "", "", 0, 0) if flags == til.NTF_SYMM and name in library else None
+til.get_named_type = lambda t, name, flags: (1, b"T:" + name.encode(), b"", "", "", 0, 0) if flags == til.NTF_SYMU and name in library else None
 til.apply_tinfo = lambda ea, tif, flags: calls.append(("apply_tinfo", ea, tif.name, flags)) or True
 til.tinfo_t = FakeTinfo
 sys.modules["ida_typeinf"] = til
@@ -570,6 +570,7 @@ protos = dict(cgen.prototypes())
 assert protos == {"code_user": "int code_user(code code_, int task, bool on)", "task": "int task(code code_, int task, bool on)"}, protos
 assert m.unnamed(protos["task"], "task") == "int __btf2ida_fn(code code_, int task, bool on)"
 assert "#include <stdbool.h>" in btf2c.header(cgen)
+assert dict(btf2c.Generator(B.BTF(c.blob()), bool_name="_BOOL1").prototypes())["task"] == "int task(code code_, int task, _BOOL1 on)"
 print("stub test OK: fixed declarator name for SetType, rejected prototypes named, typedef-named parameters renamed, _Bool as bool")
 # Undefined symbols of the input module vs the database: explains an import count of 0.
 def tiny_elf32_be(sections):

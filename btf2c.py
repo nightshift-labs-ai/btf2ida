@@ -37,7 +37,7 @@ def ident(name):
 
 
 class Generator:
-    def __init__(self, data, pointer_size=8):
+    def __init__(self, data, pointer_size=8, bool_name="bool"):
         self.btf = data
         self.pointer_size = pointer_size
         self.tags = {}
@@ -52,6 +52,7 @@ class Generator:
         self.dropped = []
         self.scope = 0
         self._typedef_names = None
+        self.bool_name = bool_name  # the plugin passes _BOOL1 when IDA's bool is not 1 byte
         for t in data:  # Struct, union, enum tags and typedefs share one namespace in IDA.
             if t.kind in (B.STRUCT, B.UNION, B.ENUM, B.ENUM64) or (t.kind == B.FWD and not t.name == ""):
                 self.tag(t)
@@ -115,7 +116,7 @@ class Generator:
             return "char"
         encoding = t.data >> 24
         if encoding & B.INT_BOOL:  # IDA's own bool; the C header includes <stdbool.h> for gcc
-            return "bool" if t.size == 1 else {2: "unsigned short", 4: "unsigned int", 8: "unsigned long long"}.get(t.size, "unsigned char")
+            return self.bool_name if t.size == 1 else {2: "unsigned short", 4: "unsigned int", 8: "unsigned long long"}.get(t.size, "unsigned char")
         if t.size == 1 and encoding & B.INT_CHAR:
             return "char"
         signed = encoding & B.INT_SIGNED
@@ -481,7 +482,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         with open(args.input, "rb") as handle:
-            blob = handle.read()
+            blob = B.unpack_kernel_image(handle.read(), args.input)
         base = None
         if args.base:
             with open(args.base, "rb") as handle:
