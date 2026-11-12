@@ -248,8 +248,9 @@ def in_extern_segment(address):
 # void f(void). Applied to memcpy, __arch_copy_from_user & co., it would wipe the arguments at every call, so btf2ida
 # leaves such a prototype out for the names below and wherever IDA's own type (at the address, or in its type
 # libraries for that name) lists parameters. The list: entry points defined in arch/x86 and arch/arm64 .S files
-# (mostly SYM_FUNC_START / SYM_CODE_START) that BTF records as void f(void) on Debian 13 6.12 (amd64, arm64), Ubuntu 24.04 6.8 (amd64,
-# arm64) and Ubuntu 26.04 7.0 (amd64). Skipping a name here costs nothing: BTF has no real prototype for any of them.
+# (mostly SYM_FUNC_START / SYM_CODE_START), and on 7.0 the lib/crypto ones, that BTF records as void f(void) on Debian 13
+# 6.12 (amd64, arm64), Ubuntu 24.04 6.8 (amd64, arm64) and Ubuntu 26.04 7.0 (amd64). Skipping a name here costs
+# nothing: BTF has no real prototype for any of them.
 ASM_VOID = frozenset("""
     __WARN_trap __arch_clear_user __arch_copy_from_user __arch_copy_to_user __arm_smccc_hvc __arm_smccc_smc
     __ashlti3 __ashrti3 __clear_pages_unrolled __copy_user_nocache __cpu_secondary_check52bitva __cpu_setup
@@ -264,26 +265,32 @@ ASM_VOID = frozenset("""
     __put_user_nocheck_1 __put_user_nocheck_2 __put_user_nocheck_4 __put_user_nocheck_8 __relocate_kernel __seamcall
     __seamcall_ret __seamcall_saved_ret __secondary_switched __secondary_too_slow __sve_restore_state
     __sve_save_state __sw_hweight32 __sw_hweight64 __switch_to_asm __tdcall __tdcall_ret __tdcall_saved_ret
-    _cpu_resume arm_smccc_1_2_hvc arm_smccc_1_2_smc asm_acpi_mp_play_dead asm_fred_entry_from_kvm asm_load_gs_index
-    blake2s_compress_avx512 blake2s_compress_ssse3 caches_clean_inval_pou caches_clean_inval_user_pou
-    call_depth_return_thunk call_on_irq_stack chacha_2block_xor_avx2 chacha_2block_xor_avx512vl
-    chacha_4block_xor_avx2 chacha_4block_xor_avx512vl chacha_4block_xor_ssse3 chacha_8block_xor_avx2
-    chacha_8block_xor_avx512vl chacha_block_xor_ssse3 check_events clear_bhb_loop clear_page clear_page_erms
-    clear_page_orig clear_page_rep clear_page_tables copy_mc_enhanced_fast_string copy_mc_fragile copy_page
-    copy_page_regs copy_to_nontemporal core_restore_code cpu_do_resume cpu_do_suspend cpu_switch_to crc_pcl
-    create_idmap create_kernel_mapping csum_partial_copy_generic dcache_clean_inval_poc dcache_clean_poc
-    dcache_clean_pop dcache_clean_pou dcache_inval_poc do_suspend_lowlevel entry_ibpb entry_untrain_ret finalise_el2
-    fpsimd_load_state fpsimd_save_state ftrace_caller ftrace_regs_caller ftrace_stub ftrace_stub_direct_tramp
-    ftrace_stub_graph hchacha_block_ssse3 ibt_selftest icache_inval_pou idmap_cpu_replace_ttbr1
-    idmap_kpti_install_ng_mappings init_kernel_el memcpy memcpy_orig memmove memset memset_orig mte_clear_page_tags
-    mte_copy_page_tags mte_copy_tags_from_user mte_copy_tags_to_user mte_restore_page_tags mte_save_page_tags
-    mte_zero_clear_page_tags native_save_fl privcmd_call remap_region rep_movs_alternative rep_stos_alternative
-    restore_image restore_registers retbleed_untrain_ret secondary_entry secondary_holding_pen secondary_startup
-    set_cpu_boot_mode_flag sev_verify_cbit sha1_ni_transform sha256_ni_transform sha256_transform_avx
-    sha256_transform_rorx sha256_transform_ssse3 sha512_transform_avx sha512_transform_rorx sha512_transform_ssse3
-    sme_encrypt_execute srso_alias_safe_ret srso_alias_untrain_ret srso_untrain_ret strchr sve_flush_live sve_get_vl
-    sve_load_state sve_save_state sve_set_vq swsusp_arch_suspend this_cpu_cmpxchg16b_emu verify_cpu wakeup_long64
-    write_ibpb xen_hypercall_amd xen_hypercall_hvm xen_hypercall_intel xen_hypercall_pv xen_irq_disable_direct
+    _cpu_resume aes128_expandkey_aesni aes256_expandkey_aesni aes_decrypt_aesni aes_encrypt_aesni arm_smccc_1_2_hvc
+    arm_smccc_1_2_smc asm_acpi_mp_play_dead asm_fred_entry_from_kvm asm_load_gs_index blake2s_compress_avx512
+    blake2s_compress_ssse3 caches_clean_inval_pou caches_clean_inval_user_pou call_depth_return_thunk
+    call_on_irq_stack chacha_2block_xor_avx2 chacha_2block_xor_avx512vl chacha_4block_xor_avx2
+    chacha_4block_xor_avx512vl chacha_4block_xor_ssse3 chacha_8block_xor_avx2 chacha_8block_xor_avx512vl
+    chacha_block_xor_ssse3 check_events clear_bhb_loop clear_page clear_page_erms clear_page_orig clear_page_rep
+    clear_page_tables copy_mc_enhanced_fast_string copy_mc_fragile copy_page copy_page_regs copy_to_nontemporal
+    core_restore_code cpu_do_resume cpu_do_suspend cpu_switch_to crc16_msb_pclmul_sse crc16_msb_vpclmul_avx2
+    crc16_msb_vpclmul_avx512 crc32_lsb_pclmul_sse crc32_lsb_vpclmul_avx2 crc32_lsb_vpclmul_avx512 crc32c_x86_3way
+    crc64_lsb_pclmul_sse crc64_lsb_vpclmul_avx2 crc64_lsb_vpclmul_avx512 crc64_msb_pclmul_sse crc64_msb_vpclmul_avx2
+    crc64_msb_vpclmul_avx512 crc_pcl create_idmap create_kernel_mapping csum_partial_copy_generic
+    dcache_clean_inval_poc dcache_clean_poc dcache_clean_pop dcache_clean_pou dcache_inval_poc do_suspend_lowlevel
+    entry_ibpb entry_untrain_ret finalise_el2 fpsimd_load_state fpsimd_save_state ftrace_caller ftrace_regs_caller
+    ftrace_stub ftrace_stub_direct_tramp ftrace_stub_graph hchacha_block_ssse3 ibt_selftest icache_inval_pou
+    idmap_cpu_replace_ttbr1 idmap_kpti_install_ng_mappings init_kernel_el memcpy memcpy_orig memmove memset
+    memset_orig mte_clear_page_tags mte_copy_page_tags mte_copy_tags_from_user mte_copy_tags_to_user
+    mte_restore_page_tags mte_save_page_tags mte_zero_clear_page_tags native_save_fl poly1305_blocks_avx
+    poly1305_blocks_avx2 poly1305_blocks_avx512 poly1305_blocks_x86_64 poly1305_emit_avx poly1305_emit_x86_64
+    poly1305_init_x86_64 privcmd_call remap_region rep_movs_alternative rep_stos_alternative restore_image
+    restore_registers retbleed_untrain_ret secondary_entry secondary_holding_pen secondary_startup
+    set_cpu_boot_mode_flag sev_verify_cbit sha1_ni_transform sha1_transform_avx sha1_transform_avx2
+    sha1_transform_ssse3 sha256_ni_finup2x sha256_ni_transform sha256_transform_avx sha256_transform_rorx
+    sha256_transform_ssse3 sha512_transform_avx sha512_transform_rorx sha512_transform_ssse3 sme_encrypt_execute
+    srso_alias_safe_ret srso_alias_untrain_ret srso_untrain_ret strchr sve_flush_live sve_get_vl sve_load_state
+    sve_save_state sve_set_vq swsusp_arch_suspend this_cpu_cmpxchg16b_emu verify_cpu wakeup_long64 write_ibpb
+    xen_hypercall_amd xen_hypercall_hvm xen_hypercall_intel xen_hypercall_pv xen_irq_disable_direct
     xen_irq_enable_direct xen_read_cr2 xen_read_cr2_direct xen_save_fl_direct""".split())
 VOID_VOID = re.compile(r"^void\s+[A-Za-z_][A-Za-z_0-9]*\(void\)$")
 
