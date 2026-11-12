@@ -7,6 +7,7 @@ struct, union, enum and typedef, then applies a prototype to each function whose
 """
 import re
 import traceback
+import zlib
 import mmap
 import struct
 import os
@@ -280,13 +281,76 @@ def void_void_unsafe(address, name, declaration):
     return bool(inside.strip()) and inside.strip() != "void"
 
 
-def set_prototype(address, name, declaration, result, is_import=False):
-    if ida_nalt.is_userti(address):  # typed by hand or by an earlier run: never overwrite it
-        result["kept"] += 1
+# Every prototype btf2ida sets is "definite" (IDA's user-type flag), the same flag as a type set by hand. To tell its
+# own earlier work from the user's, btf2ida records, per address, a CRC of the type text IDA shows right after it set
+# it. A later run may replace a prototype only while that record still matches (nobody changed it since).
+OWN_NODE = "$ btf2ida typed"
+
+
+def own_types():
+    """The netnode holding btf2ida's own earlier prototypes, or None (then every user-set type is kept)."""
+    try:
+        import ida_netnode
+        return ida_netnode.netnode(OWN_NODE, 0, True)
+    except Exception:  # noqa: BLE001  (no netnode support: behave as before)
+        return None
+
+
+def type_mark(address):
+    """CRC of the type text IDA shows at address, plus 1 (0 = no type)."""
+    try:
+        text = idc.get_type(address) or ""
+    except Exception:  # noqa: BLE001
+        return 0
+    return (zlib.crc32(text.encode("utf-8", "replace")) & 0xFFFFFFFF) + 1 if text else 0
+
+
+def earlier_void_void(address, name):
+    """True when the user-set type at address looks like the 'void f(void)' that btf2ida 0.1.20 and earlier put on an
+    assembly function (memcpy & co.), before the record of its own types existed: a known assembly name whose current
+    type has no parameters. Nobody types memcpy as taking no arguments by hand."""
+    if name not in ASM_VOID:
+        return False
+    try:
+        current = idc.get_type(address) or ""
+    except Exception:  # noqa: BLE001
+        return False
+    inside = current[current.find("(") + 1:current.rfind(")")].strip() if "(" in current else None
+    return inside in ("", "void")
+
+
+def remove_void_void(address, name, own, result):
+    """Undo an earlier btf2ida 'void f(void)' on an assembly function: drop it, and give the address the prototype of
+    IDA's type libraries for that name when they have one."""
+    try:
+        ida_nalt.del_tinfo(address)
+        import ida_typeinf
+        ida_typeinf.apply_named_type(address, name)
+    except Exception:  # noqa: BLE001  (no type library prototype: the address stays untyped)
+        pass
+    if own is not None:
+        own.altdel_ea(address)
+    result["void_removed"] += 1
+
+
+def set_prototype(address, name, declaration, result, is_import=False, own=None):
+    ours = own is not None and own.altval_ea(address) != 0 and own.altval_ea(address) == type_mark(address)
+    if ida_nalt.is_userti(address) and not ours:  # typed by hand (or changed by hand since btf2ida typed it)
+        if VOID_VOID.match(declaration.strip()) and earlier_void_void(address, name):
+            remove_void_void(address, name, own, result)
+        else:
+            result["kept"] += 1
     elif void_void_unsafe(address, name, declaration):
-        result["void_skipped"] += 1
+        if ours:
+            remove_void_void(address, name, own, result)
+        else:
+            result["void_skipped"] += 1
     elif idc.SetType(address, declaration + ";"):
         result["imports" if is_import else "applied"] += 1
+        if ours:
+            result["retyped"] += 1
+        if own is not None:
+            own.altset_ea(address, type_mark(address))
     else:
         result["imports_rejected" if is_import else "rejected"].append(name)
 
@@ -298,7 +362,9 @@ def apply_prototypes(prototypes, progress=None, imported=()):
     applied only to names in an extern segment (the kernel functions the module calls). vmlinux
     functions the module does not use are not "missing", so they are not counted.
     """
-    result = {"applied": 0, "rejected": [], "absent": 0, "not_function": 0, "clones": 0, "kept": 0, "imports": 0, "imports_rejected": [], "void_skipped": 0}
+    result = {"applied": 0, "rejected": [], "absent": 0, "not_function": 0, "clones": 0, "kept": 0, "imports": 0, "imports_rejected": [], "void_skipped": 0,
+              "retyped": 0, "void_removed": 0}
+    own = own_types()
     wanted = dict(imported)
     wanted.update(prototypes)
     jobs = [(name, declaration, False) for name, declaration in prototypes]
@@ -309,7 +375,7 @@ def apply_prototypes(prototypes, progress=None, imported=()):
         address = idc.get_name_ea_simple(name)
         if is_import:
             if address != idc.BADADDR and in_extern_segment(address):
-                set_prototype(address, name, declaration, result, is_import=True)
+                set_prototype(address, name, declaration, result, is_import=True, own=own)
             continue
         if address == idc.BADADDR:
             result["absent"] += 1
@@ -318,7 +384,7 @@ def apply_prototypes(prototypes, progress=None, imported=()):
         if function is None or function.start_ea != address:
             result["not_function"] += 1
             continue
-        set_prototype(address, name, declaration, result)
+        set_prototype(address, name, declaration, result, own=own)
     for address in idautils.Functions():
         name = idc.get_func_name(address)
         if any(mark in name for mark in SUFFIXES) and name.split(".")[0] in wanted:
@@ -361,6 +427,13 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
         "Left untyped on purpose: %d compiler clones (.isra, .constprop, .part, .cold), their ABI may differ" % result["clones"],
         "Kept as they were: %d functions that already had a user-set type" % result["kept"],
     ]
+    if result.get("retyped"):
+        lines.append("Re-typed: %d functions whose prototype an earlier btf2ida run had set (unchanged since)"
+                     % result["retyped"])
+    if result.get("void_removed"):
+        lines.append("Removed: %d 'void f(void)' prototypes an earlier btf2ida run had put on assembly functions such as "
+                     "memcpy (replaced by the prototype from IDA's type libraries where they have one)"
+                     % result["void_removed"])
     if result.get("void_skipped"):
         lines.append("Not applied: %d 'void f(void)' prototypes of assembly functions such as memcpy (BTF has no real "
                      "prototype for them; IDA's own type is kept)" % result["void_skipped"])

@@ -438,4 +438,71 @@ typed = sorted(c[1] for c in calls if c[0] == "settype")
 assert typed == [0x7200, 0x7400] and res["void_skipped"] == 3 and res["applied"] == 2, (typed, res)
 del sys.modules["ida_typeinf"]
 print("stub test OK: void(void) prototypes skipped for memcpy and where IDA's type or a type library has parameters (3), applied elsewhere")
+# A re-run replaces btf2ida's own earlier prototypes (recorded in a netnode with a CRC of the type text) but keeps a
+# type changed by hand since, and removes a 0.1.20-style 'void f(void)' on memcpy (no record) for IDA's library type.
+class FakeNode:
+    def __init__(self, name, namlen, create):
+        self.alt = store
+
+    def altval_ea(self, ea):
+        return self.alt.get(ea, 0)
+
+    def altset_ea(self, ea, value):
+        self.alt[ea] = value
+        return True
+
+    def altdel_ea(self, ea):
+        return self.alt.pop(ea, None) is not None
+
+
+store, shown, userti = {}, {}, set()
+netnode_mod = types.ModuleType("ida_netnode")
+netnode_mod.netnode = FakeNode
+sys.modules["ida_netnode"] = netnode_mod
+addrs = {"fn_a": 0x7600, "fn_b": 0x7700, "memcpy": 0x7800}
+idc.get_name_ea_simple = lambda n: addrs.get(n, idc.BADADDR)
+sys.modules["ida_funcs"].get_func = lambda ea: types.SimpleNamespace(start_ea=ea) if ea in addrs.values() else None
+idc.get_type = lambda ea: shown.get(ea)
+nalt.is_userti = lambda ea: ea in userti
+
+
+def settype(ea, decl):
+    calls.append(("settype", ea, decl))
+    shown[ea] = "IDA:" + decl
+    userti.add(ea)
+    return True
+
+
+idc.SetType = settype
+
+
+def del_tinfo(ea):
+    calls.append(("del_tinfo", ea))
+    shown.pop(ea, None)
+    userti.discard(ea)
+
+
+nalt.del_tinfo = del_tinfo
+til = types.ModuleType("ida_typeinf")
+til.apply_named_type = lambda ea, name: calls.append(("apply_named", ea, name)) or True
+til.tinfo_t = FakeTinfo
+sys.modules["ida_typeinf"] = til
+del calls[:]
+res = m.apply_prototypes([("fn_a", "int fn_a(int x)"), ("fn_b", "int fn_b(int x)")])
+assert res["applied"] == 2 and res["retyped"] == 0 and sorted(store) == [0x7600, 0x7700], (res, store)
+shown[0x7700] = "IDA:long fn_b(long y);"                                # the user edits fn_b by hand
+shown[0x7800], userti = "void __fastcall()", userti | {0x7800}           # memcpy typed void(void) by btf2ida 0.1.20
+del calls[:]
+res = m.apply_prototypes([("fn_a", "int fn_a(long x)"), ("fn_b", "int fn_b(long x)"), ("memcpy", "void memcpy(void)")])
+assert [c[1] for c in calls if c[0] == "settype"] == [0x7600], calls
+assert (res["retyped"], res["applied"], res["kept"], res["void_removed"], res["void_skipped"]) == (1, 1, 1, 1, 0), res
+assert ("del_tinfo", 0x7800) in calls and ("apply_named", 0x7800, "memcpy") in calls, calls
+assert shown[0x7700] == "IDA:long fn_b(long y);", "a type edited by hand must stay"
+userti = set()                                                            # without netnode support: as before
+del sys.modules["ida_netnode"]
+del calls[:]
+res = m.apply_prototypes([("fn_a", "int fn_a(int x)")])
+assert res["applied"] == 1 and res["retyped"] == 0, res
+del sys.modules["ida_typeinf"]
+print("stub test OK: a re-run re-types btf2ida's own unchanged prototypes, keeps hand edits, removes an old void(void) on memcpy")
 print("stub test OK (fake IDA modules)")
