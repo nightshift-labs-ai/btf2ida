@@ -244,41 +244,91 @@ def in_extern_segment(address):
         return False
 
 
-# BTF records assembly functions as "void f(void)" (pahole has no C prototype for them), the same record as a real
-# void f(void). Applying it to memcpy & co. would wipe the arguments at every call, so btf2ida skips such a prototype
-# for these known assembly entry points, for names IDA's type libraries give parameters, and wherever IDA's current
-# type already has parameters.
-ASM_VOID = frozenset("""memcpy memmove memset __memcpy __memmove __memset memcpy_orig memset_orig
-    __get_user_1 __get_user_2 __get_user_4 __get_user_8 __get_user_nocheck_1 __get_user_nocheck_2
-    __get_user_nocheck_4 __get_user_nocheck_8 __put_user_1 __put_user_2 __put_user_4 __put_user_8
-    __put_user_nocheck_1 __put_user_nocheck_2 __put_user_nocheck_4 __put_user_nocheck_8 clear_page_erms
-    clear_page_orig clear_page_rep copy_page copy_page_regs copy_mc_enhanced_fast_string copy_mc_fragile
-    copy_to_nontemporal csum_partial_copy_generic rep_movs_alternative rep_stos_alternative __sw_hweight32
-    __sw_hweight64""".split())
+# BTF records an assembly function as "void f(void)" (pahole has no C prototype for it), the same record as a real
+# void f(void). Applied to memcpy, __arch_copy_from_user & co., it would wipe the arguments at every call, so btf2ida
+# leaves such a prototype out for the names below and wherever IDA's own type (at the address, or in its type
+# libraries for that name) lists parameters. The list: entry points defined in arch/x86 and arch/arm64 .S files
+# (mostly SYM_FUNC_START / SYM_CODE_START) that BTF records as void f(void) on Debian 13 6.12 (amd64, arm64), Ubuntu 24.04 6.8 (amd64,
+# arm64) and Ubuntu 26.04 7.0 (amd64). Skipping a name here costs nothing: BTF has no real prototype for any of them.
+ASM_VOID = frozenset("""
+    __WARN_trap __arch_clear_user __arch_copy_from_user __arch_copy_to_user __arm_smccc_hvc __arm_smccc_smc
+    __ashlti3 __ashrti3 __clear_pages_unrolled __copy_user_nocache __cpu_secondary_check52bitva __cpu_setup
+    __cpu_suspend_enter __efi64_thunk __efi_call __efi_rt_asm_wrapper __enable_mmu __enc_copy __fentry__
+    __fpsimd_restore_state __fpsimd_save_state __get_user_1 __get_user_2 __get_user_4 __get_user_8
+    __get_user_nocheck_1 __get_user_nocheck_2 __get_user_nocheck_4 __get_user_nocheck_8 __guest_enter
+    __hyp_reset_vectors __hyp_set_vectors __lshrti3 __memcpy __memmove __memset __no_granule_support
+    __pi_caches_clean_inval_pou __pi_clear_page __pi_copy_page __pi_dcache_clean_inval_poc __pi_dcache_clean_poc
+    __pi_dcache_clean_pop __pi_dcache_inval_poc __pi_idmap_cpu_replace_ttbr1 __pi_memchr __pi_memcmp __pi_memcpy
+    __pi_memmove __pi_memset __pi_sme_encrypt_execute __pi_strchr __pi_strcmp __pi_strlen __pi_strncmp __pi_strnlen
+    __pi_strrchr __primary_switch __primary_switched __put_user_1 __put_user_2 __put_user_4 __put_user_8
+    __put_user_nocheck_1 __put_user_nocheck_2 __put_user_nocheck_4 __put_user_nocheck_8 __relocate_kernel __seamcall
+    __seamcall_ret __seamcall_saved_ret __secondary_switched __secondary_too_slow __sve_restore_state
+    __sve_save_state __sw_hweight32 __sw_hweight64 __switch_to_asm __tdcall __tdcall_ret __tdcall_saved_ret
+    _cpu_resume arm_smccc_1_2_hvc arm_smccc_1_2_smc asm_acpi_mp_play_dead asm_fred_entry_from_kvm asm_load_gs_index
+    blake2s_compress_avx512 blake2s_compress_ssse3 caches_clean_inval_pou caches_clean_inval_user_pou
+    call_depth_return_thunk call_on_irq_stack chacha_2block_xor_avx2 chacha_2block_xor_avx512vl
+    chacha_4block_xor_avx2 chacha_4block_xor_avx512vl chacha_4block_xor_ssse3 chacha_8block_xor_avx2
+    chacha_8block_xor_avx512vl chacha_block_xor_ssse3 check_events clear_bhb_loop clear_page clear_page_erms
+    clear_page_orig clear_page_rep clear_page_tables copy_mc_enhanced_fast_string copy_mc_fragile copy_page
+    copy_page_regs copy_to_nontemporal core_restore_code cpu_do_resume cpu_do_suspend cpu_switch_to crc_pcl
+    create_idmap create_kernel_mapping csum_partial_copy_generic dcache_clean_inval_poc dcache_clean_poc
+    dcache_clean_pop dcache_clean_pou dcache_inval_poc do_suspend_lowlevel entry_ibpb entry_untrain_ret finalise_el2
+    fpsimd_load_state fpsimd_save_state ftrace_caller ftrace_regs_caller ftrace_stub ftrace_stub_direct_tramp
+    ftrace_stub_graph hchacha_block_ssse3 ibt_selftest icache_inval_pou idmap_cpu_replace_ttbr1
+    idmap_kpti_install_ng_mappings init_kernel_el memcpy memcpy_orig memmove memset memset_orig mte_clear_page_tags
+    mte_copy_page_tags mte_copy_tags_from_user mte_copy_tags_to_user mte_restore_page_tags mte_save_page_tags
+    mte_zero_clear_page_tags native_save_fl privcmd_call remap_region rep_movs_alternative rep_stos_alternative
+    restore_image restore_registers retbleed_untrain_ret secondary_entry secondary_holding_pen secondary_startup
+    set_cpu_boot_mode_flag sev_verify_cbit sha1_ni_transform sha256_ni_transform sha256_transform_avx
+    sha256_transform_rorx sha256_transform_ssse3 sha512_transform_avx sha512_transform_rorx sha512_transform_ssse3
+    sme_encrypt_execute srso_alias_safe_ret srso_alias_untrain_ret srso_untrain_ret strchr sve_flush_live sve_get_vl
+    sve_load_state sve_save_state sve_set_vq swsusp_arch_suspend this_cpu_cmpxchg16b_emu verify_cpu wakeup_long64
+    write_ibpb xen_hypercall_amd xen_hypercall_hvm xen_hypercall_intel xen_hypercall_pv xen_irq_disable_direct
+    xen_irq_enable_direct xen_read_cr2 xen_read_cr2_direct xen_save_fl_direct""".split())
 VOID_VOID = re.compile(r"^void\s+[A-Za-z_][A-Za-z_0-9]*\(void\)$")
 
 
-def void_void_unsafe(address, name, declaration):
-    """True when declaration is "void name(void)" and must not be applied: a known assembly entry point, a name
-    IDA's loaded type libraries give a prototype with parameters, or IDA's current type at address already lists
-    parameters."""
-    if not VOID_VOID.match(declaration.strip()):
-        return False
-    if name in ASM_VOID:
-        return True
+def library_prototype(name):
+    """The prototype IDA's loaded type libraries hold for the function symbol `name` (memcpy in gnulnx_x64), or None.
+    Prototypes are symbols in a type library (NTF_SYMM), not type names."""
+    try:
+        import ida_typeinf
+        found = ida_typeinf.get_named_type(None, name, ida_typeinf.NTF_SYMM)
+        tif = ida_typeinf.tinfo_t()
+        if found and tif.deserialize(None, found[1], found[2]) and tif.is_func():
+            return tif
+    except Exception:  # noqa: BLE001  (no type library answer)
+        pass
+    return None
+
+
+def current_has_parameters(address):
+    """True when IDA's current type at address is a function type with at least one parameter."""
     try:
         import ida_typeinf
         tif = ida_typeinf.tinfo_t()
-        if tif.get_named_type(None, name) and tif.is_func() and tif.get_nargs() > 0:
-            return True
-    except Exception:  # noqa: BLE001  (no type library answer: go on with the current type)
+        return bool(ida_nalt.get_tinfo(tif, address) and tif.is_func() and tif.get_nargs() > 0)
+    except Exception:  # noqa: BLE001  (no tinfo API: read the type text instead)
         pass
     try:
         current = idc.get_type(address) or ""
-    except Exception:  # noqa: BLE001  (no type information: apply as before)
+    except Exception:  # noqa: BLE001  (no type information)
         return False
     inside = current[current.find("(") + 1:current.rfind(")")] if "(" in current else ""
     return bool(inside.strip()) and inside.strip() != "void"
+
+
+def void_void_unsafe(address, name, declaration, check_current=True):
+    """Why "void name(void)" must not be applied: "asm" for a known assembly function, "ida" when IDA's type at the
+    address or its type library prototype for the name lists parameters; None to apply it."""
+    if not VOID_VOID.match(declaration.strip()):
+        return None
+    if name in ASM_VOID:
+        return "asm"
+    library = library_prototype(name)
+    if library is not None and library.get_nargs() > 0:
+        return "ida"
+    return "ida" if check_current and current_has_parameters(address) else None
 
 
 # Every prototype btf2ida sets is "definite" (IDA's user-type flag), the same flag as a type set by hand. To tell its
@@ -324,8 +374,10 @@ def remove_void_void(address, name, own, result):
     IDA's type libraries for that name when they have one."""
     try:
         ida_nalt.del_tinfo(address)
-        import ida_typeinf
-        ida_typeinf.apply_named_type(address, name)
+        library = library_prototype(name)
+        if library is not None:
+            import ida_typeinf
+            ida_typeinf.apply_tinfo(address, library, ida_typeinf.TINFO_GUESSED)
     except Exception:  # noqa: BLE001  (no type library prototype: the address stays untyped)
         pass
     if own is not None:
@@ -347,11 +399,12 @@ def set_prototype(address, name, declaration, result, is_import=False, own=None)
             remove_void_void(address, name, own, result)
         else:
             result["kept"] += 1
-    elif void_void_unsafe(address, name, declaration):
-        if ours:
-            remove_void_void(address, name, own, result)
-        else:
-            result["void_skipped"] += 1
+        return
+    why = void_void_unsafe(address, name, declaration, check_current=not ours)  # btf2ida's own type is not IDA's
+    if why and ours:  # btf2ida's own earlier void f(void) goes; IDA's type library prototype comes back
+        remove_void_void(address, name, own, result)
+    elif why:
+        result["void_" + why] += 1
     elif idc.SetType(address, unnamed(declaration, name) + ";"):
         result["imports" if is_import else "applied"] += 1
         if ours:
@@ -387,7 +440,7 @@ def apply_prototypes(prototypes, progress=None, imported=()):
     applied only to names in an extern segment (the kernel functions the module calls). vmlinux
     functions the module does not use are not "missing", so they are not counted.
     """
-    result = {"applied": 0, "rejected": [], "absent": 0, "not_function": 0, "clones": 0, "kept": 0, "imports": 0, "imports_rejected": [], "void_skipped": 0,
+    result = {"applied": 0, "rejected": [], "absent": 0, "not_function": 0, "clones": 0, "kept": 0, "imports": 0, "imports_rejected": [], "void_asm": 0, "void_ida": 0,
               "retyped": 0, "void_removed": 0}
     own = own_types()
     wanted = dict(imported)
@@ -466,9 +519,10 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
         lines.append("Removed: %d 'void f(void)' prototypes an earlier btf2ida run had put on assembly functions such as "
                      "memcpy (replaced by the prototype from IDA's type libraries where they have one)"
                      % result["void_removed"])
-    if result.get("void_skipped"):
-        lines.append("Not applied: %d 'void f(void)' prototypes of assembly functions such as memcpy (BTF has no real "
-                     "prototype for them; IDA's own type is kept)" % result["void_skipped"])
+    if result.get("void_asm") or result.get("void_ida"):
+        lines.append("Not applied: %d 'void f(void)' prototypes of known assembly functions such as memcpy (BTF records "
+                     "them without parameters) and %d where IDA's type lists parameters; left as IDA has them"
+                     % (result.get("void_asm", 0), result.get("void_ida", 0)))
     if failed:
         lines.append("First rejected declaration: %s" % failed[0][:200])
     rejected = result["rejected"] + result["imports_rejected"]

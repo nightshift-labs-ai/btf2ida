@@ -14,7 +14,8 @@ import re
 import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-MODULES = ("ida_kernwin", "ida_idaapi", "ida_nalt", "ida_name", "ida_bytes", "ida_funcs", "ida_ida", "ida_segment", "idautils", "idc")
+MODULES = ("ida_kernwin", "ida_idaapi", "ida_nalt", "ida_name", "ida_bytes", "ida_funcs", "ida_ida", "ida_segment", "ida_typeinf",
+           "ida_netnode", "idautils", "idc")
 
 
 def dotted(node):
@@ -66,6 +67,8 @@ def main():
     # Methods called on instances of IDA classes, which the module walk above cannot see.
     used |= {"ida_idaapi.plugin_t.run", "ida_idaapi.plugin_t.term"}
     used |= {"ida_kernwin.action_handler_t.activate", "ida_kernwin.action_handler_t.update"}
+    used |= {"ida_typeinf.tinfo_t.deserialize", "ida_typeinf.tinfo_t.is_func", "ida_typeinf.tinfo_t.get_nargs",
+             "ida_netnode.netnode.altval_ea", "ida_netnode.netnode.altset_ea", "ida_netnode.netnode.altdel_ea"}
     missing = sorted(used - known)
     for name in missing:
         print("NOT IN OFFICIAL API:", name)

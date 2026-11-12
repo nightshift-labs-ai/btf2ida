@@ -415,13 +415,16 @@ idc.get_type = lambda ea: {0x7300: "void __fastcall(void *a1, int a2)", 0x7200: 
 nalt.is_userti = lambda ea: False
 del calls[:]
 idc.SetType = lambda ea, d: calls.append(("settype", ea, d)) or True
-til = types.ModuleType("ida_typeinf")  # IDA's type libraries know til_func(void *p) with one argument
+til = types.ModuleType("ida_typeinf")  # IDA's type libraries know the SYMBOL til_func(void *p) (one argument)
+til.NTF_SYMM, til.NTF_TYPE, til.TINFO_GUESSED = 0, 1, 0
+library = {"til_func"}
+til.get_named_type = lambda t, name, flags: (1, b"T:" + name.encode(), b"", "", "", 0, 0) if flags == til.NTF_SYMM and name in library else None
 
 
 class FakeTinfo:
-    def get_named_type(self, til, name):
-        self.name = name
-        return name == "til_func"
+    def deserialize(self, til_, typ, fields):
+        self.name = typ[2:].decode()
+        return True
 
     def is_func(self):
         return True
@@ -431,15 +434,42 @@ class FakeTinfo:
 
 
 til.tinfo_t = FakeTinfo
+til.apply_tinfo = lambda ea, tif, flags: calls.append(("apply_tinfo", ea, tif.name, flags)) or True
 sys.modules["ida_typeinf"] = til
-addrs["til_func"] = 0x7500
+addrs.update(til_func=0x7500, int_void=0x7900, imp_memcpy=0x8100)
+idc.get_type = lambda ea: {0x7300: "void __fastcall(void *a1, int a2)", 0x7200: "void __fastcall()",
+                           0x7900: "int __fastcall(int a1)"}.get(ea)  # int f(void) from BTF is a real C prototype
+userti_set = set()
+nalt.is_userti = lambda ea: ea in userti_set
 res = m.apply_prototypes([("memcpy", "void memcpy(void)"), ("irq_enter_rcu", "void irq_enter_rcu(void)"),
                           ("has_args", "void has_args(void)"), ("with_args", "int with_args(int x)"),
-                          ("til_func", "void til_func(void)")])
+                          ("til_func", "void til_func(void)"), ("int_void", "int int_void(void)")])
 typed = sorted(c[1] for c in calls if c[0] == "settype")
-assert typed == [0x7200, 0x7400] and res["void_skipped"] == 3 and res["applied"] == 2, (typed, res)
+assert typed == [0x7200, 0x7400, 0x7900] and (res["void_asm"], res["void_ida"], res["applied"]) == (1, 2, 3), (typed, res)
+text = m.report("x", btf2c.Generator(B.BTF(raw)), [], res)
+assert "Not applied: 1 'void f(void)' prototypes of known assembly functions such as memcpy (BTF records them without " \
+       "parameters) and 2 where IDA's type lists parameters; left as IDA has them" in text, text
+# the J1 case itself: an IMPORT (extern segment) named like an assembly function is not typed void(void)
+seg.segtype = lambda ea: seg.SEG_XTRN if ea == 0x8100 else seg.SEG_CODE
+addrs["__arch_copy_to_user"] = 0x8100
+del calls[:]
+res = m.apply_prototypes([], None, [("__arch_copy_to_user", "void __arch_copy_to_user(void)")])
+assert res["void_asm"] == 1 and res["imports"] == 0 and not [c for c in calls if c[0] == "settype"], (res, calls)
+# a user-set type is checked first: kept, even for an assembly name with a non-void(void) type
+userti_set.add(0x7100)
+idc.get_type = lambda ea: {0x7100: "void *__fastcall(void *, const void *, size_t)"}.get(ea)
+res = m.apply_prototypes([("memcpy", "void memcpy(void)")])
+assert (res["kept"], res["void_asm"]) == (1, 0), res
+userti_set.clear()
+# IDA's tinfo API, when present, decides "IDA's type lists parameters" (no text parsing)
+nalt.get_tinfo = lambda tif, ea: ea == 0x7200
+del calls[:]
+res = m.apply_prototypes([("irq_enter_rcu", "void irq_enter_rcu(void)")])
+assert res["void_ida"] == 1 and not [c for c in calls if c[0] == "settype"], (res, calls)
+del nalt.get_tinfo
+idc.get_type = lambda ea: {0x7300: "void __fastcall(void *a1, int a2)", 0x7200: "void __fastcall()"}.get(ea)
 del sys.modules["ida_typeinf"]
-print("stub test OK: void(void) prototypes skipped for memcpy and where IDA's type or a type library has parameters (3), applied elsewhere")
+print("stub test OK: void(void) skipped for assembly names (also imports) and where IDA's type or type-library symbol has parameters; int f(void) and real void(void) applied")
 # A re-run replaces btf2ida's own earlier prototypes (recorded in a netnode with a CRC of the type text) but keeps a
 # type changed by hand since, and removes a 0.1.20-style 'void f(void)' on memcpy (no record) for IDA's library type.
 class FakeNode:
@@ -486,7 +516,10 @@ def del_tinfo(ea):
 
 nalt.del_tinfo = del_tinfo
 til = types.ModuleType("ida_typeinf")
-til.apply_named_type = lambda ea, name: calls.append(("apply_named", ea, name)) or True
+til.NTF_SYMM, til.TINFO_GUESSED = 0, 0
+library.add("memcpy")
+til.get_named_type = lambda t, name, flags: (1, b"T:" + name.encode(), b"", "", "", 0, 0) if flags == til.NTF_SYMM and name in library else None
+til.apply_tinfo = lambda ea, tif, flags: calls.append(("apply_tinfo", ea, tif.name, flags)) or True
 til.tinfo_t = FakeTinfo
 sys.modules["ida_typeinf"] = til
 del calls[:]
@@ -497,8 +530,8 @@ shown[0x7800], userti = "void __fastcall()", userti | {0x7800}           # memcp
 del calls[:]
 res = m.apply_prototypes([("fn_a", "int fn_a(long x)"), ("fn_b", "int fn_b(long x)"), ("memcpy", "void memcpy(void)")])
 assert [c[1] for c in calls if c[0] == "settype"] == [0x7600], calls
-assert (res["retyped"], res["applied"], res["kept"], res["void_removed"], res["void_skipped"]) == (1, 1, 1, 1, 0), res
-assert ("del_tinfo", 0x7800) in calls and ("apply_named", 0x7800, "memcpy") in calls, calls
+assert (res["retyped"], res["applied"], res["kept"], res["void_removed"], res["void_asm"]) == (1, 1, 1, 1, 0), res
+assert ("del_tinfo", 0x7800) in calls and ("apply_tinfo", 0x7800, "memcpy", til.TINFO_GUESSED) in calls, calls
 assert shown[0x7700] == "IDA:long fn_b(long y);", "a type edited by hand must stay"
 userti = set()                                                            # without netnode support: as before
 del sys.modules["ida_netnode"]
