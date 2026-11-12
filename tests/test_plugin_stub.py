@@ -75,7 +75,8 @@ assert B.carve(b"\x01" * 37 + raw + b"\x02" * 11, min_types=1).count == 10, "car
 assert B.carve(b"\x01" * 37 + raw + b"\x02" * 11) is None, "a small BPF-sized BTF is not a kernel"
 gen = btf2c.Generator(data)
 text = btf2c.header(gen)
-assert "int private_;" in text and "__bits_4[1]" in text and "int (*cb)(struct task *arg);" in text.replace("a1", "arg"), text
+assert "int private_;" in text and "int (*cb)(struct task *arg);" in text.replace("a1", "arg"), text
+assert "  signed char a:3;\n  signed char b:5;\n" in text, "a 1-byte group of signed int bitfields: signed char, full"
 assert "RED = 2," in text and "typedef int mode_t;" in text
 assert ("get_it", "int get_it(struct task *arg)") in gen.prototypes(), gen.prototypes()
 with tempfile.TemporaryDirectory() as folder:
@@ -83,6 +84,58 @@ with tempfile.TemporaryDirectory() as folder:
     with open(path, "w") as handle:
         handle.write(text + "_Static_assert(sizeof(struct task) == 32, \"size\");\n_Static_assert(__builtin_offsetof(struct task, cb) == 8, \"cb\");\n")
     subprocess.run(["gcc", "-fsyntax-only", "-w", path], check=True)
+
+# Bitfields: a group of 1, 2, 4 or 8 bytes becomes C bitfields that fill one integer of that size exactly, with
+# named fillers for unused bits; signed ints and signed enums stay signed, _Bool is unsigned; other sizes stay raw bytes.
+f = Build()
+f.t("unsigned int", 1, 0, 4, struct.pack("<I", 32))                                   # 1
+f.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                  # 2
+f.t("_Bool", 1, 0, 1, struct.pack("<I", 4 << 24 | 8))                                 # 3
+f.t("level", 6, 2, 4, struct.pack("<IiIi", f.s("LOW"), -1, f.s("HIGH"), 3), kflag=1)  # 4  enum with a negative value
+f.t("long long unsigned int", 1, 0, 8, struct.pack("<I", 64))                         # 5
+f.t("long long int", 1, 0, 8, struct.pack("<I", 1 << 24 | 64))                        # 6
+f.t("flags", 4, 9, 24, kflag=1, extra=struct.pack(                                    # 7
+    "<" + "III" * 9,
+    f.s("ready"), 1, 1 << 24 | 0, f.s("mode"), 2, 3 << 24 | 1, f.s("refs"), 1, 8 << 24 | 6,  # bytes 0-1, gaps
+    f.s("x"), 2, 32,
+    f.s("big"), 1, 20 << 24 | 64,                                                      # bytes 8-10: 3 bytes, raw
+    f.s("lvl"), 4, 4 << 24 | 96, f.s("on"), 3, 1 << 24 | 100,                          # byte 12
+    f.s("addr"), 5, 52 << 24 | 128, f.s("sign"), 6, 12 << 24 | 180))                   # bytes 16-23
+fdata = B.BTF(f.blob())
+fgen = btf2c.Generator(fdata)
+ftext = btf2c.header(fgen)
+assert """struct flags {
+  unsigned short ready:1;
+  signed short mode:3;
+  unsigned short __pad_bits_0_4:2;
+  unsigned short refs:8;
+  unsigned short __pad_bits_0_14:2;
+  unsigned char __pad_2[2];
+  int x;
+  unsigned char __bits_8[3]; /* big:20@0 */
+  unsigned char __pad_b[1];
+  signed char lvl:4;
+  unsigned char on:1;
+  unsigned char __pad_bits_c_5:3;
+  unsigned char __pad_d[3];
+  unsigned long long addr:52;
+  signed long long sign:12;
+};""" in ftext, ftext
+assert (fgen.stats["bitfield_groups"], fgen.stats["bitfields"], fgen.stats["bitfield_groups_raw"], fgen.stats["bitfields_as_storage"]) == (3, 7, 1, 1), fgen.stats
+big_endian = B.BTF(f.blob())
+big_endian.endian = ">"
+for fold in (btf2c.Generator(fdata, bitfields=False), btf2c.Generator(big_endian)):
+    otext = btf2c.header(fold)  # the raw-byte form: on request, and for big-endian BTF (not checked there)
+    assert "__bits_0[2]; /* ready:1@0, mode:3@1, refs:8@6 */" in otext and "__bits_c[1]" in otext and "__bits_10[8]" in otext, otext
+    assert "ready:1;" not in otext and "addr:52;" not in otext and fold.stats["bitfields"] == 0, otext
+# The toy demo's expected header is what btf2c.py writes for it now.
+toy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demo")
+with open(os.path.join(toy, "toy_kernel.elf"), "rb") as handle:
+    toy_text = btf2c.header(btf2c.Generator(B.load(handle.read())))
+with open(os.path.join(toy, "expected_types.h"), encoding="utf-8") as handle:
+    assert handle.read() == toy_text, "demo/expected_types.h is out of date"
+assert "  unsigned short ready:1;\n  unsigned short mode:3;\n  unsigned short refs:12;\n  unsigned char __pad_a[2];\n" in toy_text
+print("stub test OK: bitfield groups of 1/2/4/8 bytes as full C bitfields (signed kept), others raw")
 
 # An empty struct (size 0 in BTF) gets a forward declaration only and is counted apart from real bodies.
 e = Build()
@@ -204,7 +257,7 @@ assert m.ApplyBTF().activate(None) == 1
 assert [c for c in calls if c[0] == "settype"] == [("settype", 0x1000, "int __btf2ida_fn(struct task *arg);")], calls
 assert all(c[2] == idc.PT_SIL | idc.PT_PAK1 for c in calls if c[0] == "parse")
 parsed = "\n".join(c[1] for c in calls if c[0] == "parse")
-assert "struct task {" in parsed and "#pragma" not in parsed
+assert "struct task {" in parsed and "#pragma" not in parsed and "signed char b:5;" in parsed
 message = [c[1] for c in calls if c[0] == "info"][0]
 assert "applied to 1 functions" in message and "not in this database 1" in message and "not a function start 1" in message and "1 compiler clones" in message, message
 assert m.import_in_batches(["a;", "BAD;", "b;"], lambda t: t.count("BAD"), batch=2) == ["BAD;"]
