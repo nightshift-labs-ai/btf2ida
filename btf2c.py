@@ -475,7 +475,7 @@ def main(argv=None):
         base = None
         if args.base:
             with open(args.base, "rb") as handle:
-                base = B.load_base(handle.read(), args.base)
+                base = B.load_base(B.unpack_kernel_image(handle.read(), args.base), args.base)
         data = B.load(blob, base=base)
         if data.distilled and base is not None:
             print("btf2c: %s carries its own distilled .BTF.base, which its BTF is built on; --base is not used "

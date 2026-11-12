@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Read Linux BTF from a raw blob, an ELF file or any memory image. Standard library only."""
+import bz2
+import lzma
 import re
 import struct
+import zlib
 
 MAGIC = 0xEB9F
 VOID, INT, PTR, ARRAY, STRUCT, UNION, ENUM, FWD, TYPEDEF, VOLATILE, CONST, RESTRICT, FUNC, FUNC_PROTO, VAR, DATASEC, FLOAT, DECL_TAG, TYPE_TAG, ENUM64 = range(20)
@@ -302,6 +305,66 @@ def kernel_releases(blob):
     and in no fixed order, so the caller checks membership instead of trusting the first match.
     """
     return {found.group(1).decode("ascii", "replace") for found in BANNER.finditer(blob)}
+
+
+# Payload formats of an x86 bzImage (arch/x86/boot/compressed): magic at the start of the payload.
+BZIMAGE_FORMATS = ((b"\x1f\x8b", "gzip"), (b"\xfd7zXZ\x00", "xz"), (b"BZh", "bzip2"), (b"\x5d\x00\x00", "lzma"),
+                   (b"\x28\xb5\x2f\xfd", "zstd"), (b"\x02\x21\x4c\x18", "lz4"), (b"\x89LZO", "lzo"))
+UNPACKERS = {"gzip": lambda: zlib.decompressobj(31), "xz": lambda: lzma.LZMADecompressor(lzma.FORMAT_XZ),
+             "lzma": lambda: lzma.LZMADecompressor(lzma.FORMAT_ALONE), "bzip2": bz2.BZ2Decompressor}
+UNPACK_TOOLS = {"zstd": "zstd (unzstd)", "lz4": "lz4", "lzo": "lzop"}
+
+
+def bzimage_payload(blob):
+    """(format, compressed kernel) of an x86 bzImage, or None if blob is not one.
+
+    Boot protocol 2.08+: payload_offset (0x248) and payload_length (0x24c) locate the payload, counted from the start
+    of the protected-mode code at (setup_sects + 1) * 512 (setup_sects 0 means 4).
+    """
+    if len(blob) < 0x250 or blob[0x202:0x206] != b"HdrS":
+        return None
+    if struct.unpack_from("<H", blob, 0x206)[0] < 0x208:
+        return "unknown", b""
+    offset, length = struct.unpack_from("<II", blob, 0x248)
+    start = ((blob[0x1F1] or 4) + 1) * 512 + offset
+    payload = blob[start:start + length]
+    for magic, kind in BZIMAGE_FORMATS:
+        if payload[:len(magic)] == magic:
+            return kind, payload
+    return "unknown", payload
+
+
+def unpack_kernel_image(blob, path):
+    """The kernel inside a compressed kernel file chosen as the vmlinux, else blob itself.
+
+    An x86 bzImage packed with gzip, xz, lzma or bzip2 is unpacked here (Python's standard library); zstd, lz4 and lzo
+    are not, and the error says what to install. A whole-file gzip (an arm64 Image.gz, as Ubuntu ships its arm64
+    vmlinuz) is unpacked too.
+    """
+    if blob[:2] == b"\x1f\x8b":
+        try:
+            return zlib.decompressobj(31).decompress(bytes(blob))
+        except zlib.error:
+            return blob
+    found = bzimage_payload(blob)
+    if found is None:
+        return blob
+    kind, payload = found
+    if kind in UNPACKERS:
+        try:
+            return UNPACKERS[kind]().decompress(bytes(payload))
+        except (zlib.error, lzma.LZMAError, OSError, EOFError, ValueError) as error:
+            raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (bzImage, %s) that could not be "
+                           "unpacked (%s): extract it with scripts/extract-vmlinux, or use a copy of "
+                           "/sys/kernel/btf/vmlinux from the same kernel" % (path, kind, error))
+    if kind in UNPACK_TOOLS:
+        raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (bzImage) packed with %s, which btf2ida "
+                       "cannot unpack: install %s and run scripts/extract-vmlinux on it again (without it, "
+                       "extract-vmlinux still exits 0 and writes the bzImage unchanged; `file vmlinux` must say ELF), "
+                       "or use a copy of /sys/kernel/btf/vmlinux from the same kernel" % (path, kind, UNPACK_TOOLS[kind]))
+    raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (bzImage) in a format btf2ida does not know: "
+                   "extract it with scripts/extract-vmlinux, or use a copy of /sys/kernel/btf/vmlinux from the same "
+                   "kernel" % path)
 
 
 def load_base(blob, path):

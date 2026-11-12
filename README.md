@@ -119,8 +119,11 @@ curl -LO https://deb.debian.org/debian/pool/main/l/linux-signed-amd64/linux-imag
 dpkg-deb -x linux-image-6.12.115+deb13.1-cloud-amd64_6.12.115-2_amd64.deb deb    # or: mkdir deb; ar x the .deb; tar -xf data.tar.xz -C deb
 xz -dc deb/usr/lib/modules/6.12.115+deb13.1-cloud-amd64/kernel/net/netfilter/nf_tables.ko.xz > nf_tables.ko
 curl -LO https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-vmlinux
-sh extract-vmlinux deb/boot/vmlinuz-6.12.115+deb13.1-cloud-amd64 > vmlinux    # needs zstd (unzstd) installed
+sh extract-vmlinux deb/boot/vmlinuz-6.12.115+deb13.1-cloud-amd64 > vmlinux    # first install zstd: Debian 13 packs its kernel with zstd
+file vmlinux                                                                   # must say ELF
 ```
+
+Without `unzstd`, extract-vmlinux still exits 0 and writes the bzImage unchanged; btf2ida then says "install zstd". A kernel packed with gzip, xz, lzma or bzip2 (Debian 11, for example) needs no extract-vmlinux: choose the `vmlinuz` itself and btf2ida unpacks it. An arm64 `Image.gz` (Ubuntu's arm64 `vmlinuz`) is unpacked too.
 
 SHA-256 of the results: `nf_tables.ko` 670cb309625f77c0…, `vmlinux` f741142f44058b03…. If the Debian pool no longer has this version, the same package is kept on snapshot.debian.org; another Debian 13 cloud kernel works the same way, with other numbers.
 
@@ -157,6 +160,8 @@ All numbers from runs on real kernels; the scripts are in `tests/`.
 | `tests/test_ksymtab.py`: synthetic ELFs, no kernel needed | all four `__ksymtab` entry layouts (place-relative 12 and 8 bytes, absolute 16 and 24) give the right names; GPL table read; code, data and writable code told apart; relocatable files, missing strings and non-ELF input refused |
 | `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 45 IDA API names used, 0 missing |
 | `tests/check_ida_names.py` against the IDAPython stubs of IDA 9.1, 9.2, 9.3, 9.4 (PyPI `idapro` 0.0.5, 0.0.7, 0.0.9, 0.0.11) and 9.5 | 41 `ida_*` / `idc` names used, 0 missing in each |
+| A compressed kernel chosen as the vmlinux (`tests/check_module.py`) | Debian 11 `nf_tables.ko` (5.10.0-32, no BTF of its own) with its xz `vmlinuz`: 95 imports typed, the same output as with the extracted vmlinux. Debian 13 zstd `vmlinuz`: refused with "install zstd". Ubuntu 24.04 arm64 6.8 `vmlinuz` (gzip `Image`): unpacked, BTF and release banner found |
+| `tests/test_unpack.py`: synthetic bzImages | gzip, xz, lzma and bzip2 payloads unpacked; zstd, lz4 and lzo refused with what to install; broken payloads refused |
 | `tests/test_plugin_stub.py` with fake `ida_*` modules | full flow passes |
 
 Not verified: behaviour inside real IDA, including how fast IDA ingests a full kernel's types and whether it rejects specific declarations (the plugin is written to split rejected batches and report them instead of failing; that relies on IDA ignoring a redeclaration when a batch is parsed again; the SDK documents it, since `parse_decls` "always uses the HTI_DCL bit", which means "don't complain about redeclarations" (`typeinf.hpp` in HexRaysSA/ida-sdk), but it has not been observed in IDA). Only x86-64 kernels were used in the offline checks.

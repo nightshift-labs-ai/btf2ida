@@ -137,7 +137,7 @@ def vmlinux_for_module(vmlinux, ask):
     if not path:
         raise B.BTFError(why + ": choose the matching vmlinux to type the kernel functions it calls.")
     with open(path, "rb") as handle:
-        blob = handle.read()
+        blob = B.unpack_kernel_image(handle.read(), path)
     data = B.load_base(blob, path)
     # Nothing in the BTF ties it to the module (no split BTF to check), so compare the kernel releases.
     built_for, found = input_module_release(), B.kernel_releases(blob)
@@ -185,7 +185,7 @@ def find_btf(vmlinux=None, ask=True):
             if not path:
                 raise B.BTFError("this is split BTF (a kernel module): it needs the matching vmlinux, and none was chosen.")
             with open(path, "rb") as handle:
-                base = B.load_base(handle.read(), path)
+                base = B.load_base(B.unpack_kernel_image(handle.read(), path), path)
     return None, ""
 
 
