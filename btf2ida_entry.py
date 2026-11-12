@@ -559,7 +559,9 @@ def run_import(vmlinux=None, ask=True):
         if path and not os.path.isfile(path):
             raise B.BTFError("no BTF found in the loaded segments, and the input file %s is not on disk, so btf2ida "
                              "cannot read it or tell whether it is a kernel module. Put the file back at that path." % path)
-        raise B.BTFError("no BTF found in the input file or the loaded segments.")
+        raise B.BTFError("no BTF found in the input file or the loaded segments. For a distribution kernel built "
+                         "without BTF, BTFHub (github.com/aquasecurity/btfhub-archive) has BTF files by kernel release; "
+                         "btf2c.py turns one (<release>.btf.tar.xz) into a C header and prototypes.")
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4
     generator = btf2c.Generator(data, pointer_size, bool_name=bool_name())
     # 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate; other

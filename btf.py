@@ -383,13 +383,35 @@ def zboot_payload(blob):
     return kind, blob[offset:offset + size]
 
 
+def btf_from_archive(blob):
+    """The BTF file inside a tar archive (xz, gzip, bzip2 or plain), as BTFHub ships it (<release>.btf.tar.xz holding
+    <release>.btf), or None if blob is not such an archive. The only member ending in .btf, else the only file."""
+    if not (blob[:6] == b"\xfd7zXZ\x00" or blob[:2] == b"\x1f\x8b" or blob[:3] == b"BZh" or blob[257:262] == b"ustar"):
+        return None
+    import io
+    import tarfile
+    try:
+        with tarfile.open(fileobj=io.BytesIO(bytes(blob)), mode="r:*") as archive:
+            files = [member for member in archive.getmembers() if member.isfile() and member.size <= MAX_UNPACKED]
+            chosen = [member for member in files if member.name.endswith(".btf")] or files
+            if len(chosen) != 1:
+                return None
+            handle = archive.extractfile(chosen[0])
+            return handle.read() if handle else None
+    except (tarfile.TarError, OSError, EOFError, ValueError, ImportError):
+        return None
+
+
 def unpack_kernel_image(blob, path):
     """The kernel inside a compressed kernel file chosen as the vmlinux, else blob itself.
 
     An x86 bzImage or an EFI zboot image packed with gzip, xz, lzma or bzip2 is unpacked here (Python's standard library); zstd, lz4 and lzo
     are not, and the error says what to install. A whole-file gzip (an arm64 Image.gz, as Ubuntu ships its arm64
-    vmlinuz) is unpacked too.
+    vmlinuz) is unpacked too, and a BTFHub archive (<release>.btf.tar.xz) gives the BTF file inside it.
     """
+    archived = btf_from_archive(blob)
+    if archived is not None:
+        return archived
     if blob[:2] == b"\x1f\x8b":
         try:
             whole = zlib.decompressobj(31)

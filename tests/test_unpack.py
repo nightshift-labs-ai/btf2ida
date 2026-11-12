@@ -78,6 +78,27 @@ try:
 except B.BTFError as error:
     assert "install zstd" in str(error), error
 assert B.zboot_payload(b"MZ" + bytes(200)) is None                               # a plain PE file (arm64 Image) is not zboot
+import io  # noqa: E402
+import tarfile  # noqa: E402
+
+
+def tar(members, mode):
+    """A tar archive in memory with the given (name, data) files; mode 'w:xz', 'w:gz' or 'w'."""
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode=mode) as archive:
+        for name, data in members:
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return out.getvalue()
+
+
+for mode in ("w:xz", "w:gz", "w"):                                             # BTFHub: <release>.btf.tar.xz
+    assert B.unpack_kernel_image(tar([("5.8.0-63-generic.btf", KERNEL)], mode), "x.btf.tar.xz") == KERNEL, mode
+assert B.unpack_kernel_image(tar([("README", b"r"), ("k.btf", KERNEL)], "w:xz"), "x") == KERNEL  # the .btf member wins
+two = tar([("a.btf", KERNEL), ("b.btf", KERNEL)], "w:xz")
+assert B.btf_from_archive(two) is None                                         # ambiguous: not guessed
+assert B.btf_from_archive(KERNEL) is None and B.btf_from_archive(gzip.compress(KERNEL)) is None
 for kind, pack in packers.items():                                             # a truncated payload is refused
     packed = pack(KERNEL)
     try:
@@ -105,4 +126,4 @@ finally:
             sys.modules.pop(name, None)
         else:
             sys.modules[name] = module
-print("unpack test OK: gzip/xz/lzma/bzip2 bzImages and EFI zboot images unpacked; zstd/lz4/lzo refused with what to install; Image.gz unpacked")
+print("unpack test OK: BTFHub .btf.tar.xz/.tar.gz/.tar read; gzip/xz/lzma/bzip2 bzImages and EFI zboot images unpacked; zstd/lz4/lzo refused with what to install; Image.gz unpacked")
