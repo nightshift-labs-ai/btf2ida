@@ -594,6 +594,14 @@ with tempfile.TemporaryDirectory() as folder:
     dbytes.get_bytes = lambda ea, size: raw_vmlinux
     nalt.get_input_file_path = lambda: os.path.join(folder, "moved-away.img")
     assert "BTF from the loaded segments" in m.run_import(None, ask=False)
+    real_mmap = m.mmap.mmap  # mmap of the input failed: nothing was searched either, so the big segment is still read
+    def no_mmap(*args, **kwargs):
+        raise OSError("mmap failed")
+    m.mmap.mmap, nalt.get_input_file_path = no_mmap, (lambda: plain)
+    try:
+        assert "BTF from the loaded segments" in m.run_import(None, ask=False)
+    finally:
+        m.mmap.mmap = real_mmap
     dbytes.get_bytes, idc.get_segm_end, autos.Segments = real_get_bytes, real_segm_end, (lambda: [])
     kw.ask_file = no_dialog
     autos.Segments = whole_segments
