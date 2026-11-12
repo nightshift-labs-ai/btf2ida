@@ -38,9 +38,6 @@ sys.path.insert(0, os.path.dirname(HERE))
 import btf as B  # noqa: E402
 import btf2c  # noqa: E402
 
-SIZES = (1, 2, 4, 8)
-
-
 def resolved(btf, type_id):
     """The type behind modifiers and typedefs (None for void)."""
     while type_id:
@@ -114,8 +111,9 @@ class Walk:
                     self.dropped += len(fields)
                     continue
                 cursor = end
-                converted = (end - start in SIZES and all(signed_of(self.btf, f[3]) is not None for f in fields)
-                             and self.btf.endian == "<")
+                # Which groups become C bitfields is the generator's decision, asked here rather than copied, so a
+                # wrong decision (an overlap converted, say) reaches the gcc checks below instead of being repeated.
+                converted = gen.bitfield_lines(fields, start, end, "", "") is not None
                 if not converted:
                     self.raw_groups += 1
                     self.raw_fields += len(fields)

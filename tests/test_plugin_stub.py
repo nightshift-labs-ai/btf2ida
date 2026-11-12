@@ -122,6 +122,30 @@ assert """struct flags {
   signed long long sign:12;
 };""" in ftext, ftext
 assert (fgen.stats["bitfield_groups"], fgen.stats["bitfields"], fgen.stats["bitfield_groups_raw"], fgen.stats["bitfields_as_storage"]) == (3, 7, 1, 1), fgen.stats
+# Overlapping bitfields (not in real kernels) stay raw bytes, an unnamed bitfield is left to a filler, and a bitfield
+# that starts right where the previous group ends joins it (3 bytes + 1 byte = one 4-byte integer).
+o = Build()
+o.t("unsigned int", 1, 0, 4, struct.pack("<I", 32))                                   # 1
+o.t("unsigned char", 1, 0, 1, struct.pack("<I", 8))                                   # 2
+o.t("odd", 4, 7, 8, kflag=1, extra=struct.pack(                                       # 3
+    "<" + "III" * 7,
+    o.s("a"), 1, 4 << 24 | 0, o.s("b"), 1, 4 << 24 | 2,                                # byte 0: b overlaps a
+    o.s("c"), 1, 3 << 24 | 16, 0, 1, 2 << 24 | 19, o.s("d"), 1, 3 << 24 | 21,          # byte 2: c, an unnamed :2, d
+    o.s("e"), 1, 20 << 24 | 32, o.s("f"), 2, 8 << 24 | 56))                            # bytes 4-6 and byte 7
+odata = B.BTF(o.blob())
+ogen = btf2c.Generator(odata)
+otext = btf2c.header(ogen)
+assert """struct odd {
+  unsigned char __bits_0[1]; /* a:4@0, b:4@2 */
+  unsigned char __pad_1[1];
+  unsigned char c:3;
+  unsigned char __pad_bits_2_3:2;
+  unsigned char d:3;
+  unsigned char __pad_3[1];
+  unsigned int e:20;
+  unsigned int __pad_bits_4_20:4;
+  unsigned int f:8;
+};""" in otext, otext
 big_endian = B.BTF(f.blob())
 big_endian.endian = ">"
 for fold in (btf2c.Generator(fdata, bitfields=False), btf2c.Generator(big_endian)):
@@ -136,6 +160,13 @@ with tempfile.TemporaryDirectory() as folder:  # the gcc layout proof of tests/c
                          capture_output=True, text=True)
     assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
     assert "fields checked: 7 (3 signed)" in run.stdout and "bitfield checks 28, failures 0" in run.stdout, run.stdout
+    path = os.path.join(folder, "odd.btf")  # overlap kept raw, unnamed filler, merged groups: gcc agrees with the BTF
+    with open(path, "wb") as handle:
+        handle.write(o.blob())
+    run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"), path],
+                         capture_output=True, text=True)
+    assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
+    assert "fields checked: 4 (0 signed)" in run.stdout and "counts agree with the generator: yes" in run.stdout, run.stdout
     plain = Build()  # no bitfield at all: nothing to check is not a failure
     plain.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))
     plain.t("plain", 4, 1, 4, struct.pack("<III", plain.s("x"), 1, 0))
