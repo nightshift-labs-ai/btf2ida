@@ -21,7 +21,7 @@ A Linux kernel without its debug package is mostly `__int64 a1`, and matching he
 Install the current release (the plugin index can lag a day or more behind; see [Install](#install)):
 
 ```
-hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/tags/v0.1.20.zip
+hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/tags/v0.1.21.zip
 ```
 
 Smallest try, nothing to download: `demo/toy_kernel.elf` (17 KB) is a small program with kernel-style types, built with `gcc -gbtf`, so it carries BTF and no DWARF and IDA has no other source for these types (`demo/build.sh` rebuilds it).
