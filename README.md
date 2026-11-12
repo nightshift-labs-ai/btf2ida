@@ -125,7 +125,7 @@ sh extract-vmlinux deb/boot/vmlinuz-6.12.115+deb13.1-cloud-amd64 > vmlinux    # 
 file vmlinux                                                                   # must say ELF
 ```
 
-Without `unzstd`, extract-vmlinux still exits 0 and writes the bzImage unchanged; btf2ida then says "install zstd". A kernel packed with gzip, xz, lzma or bzip2 (Debian 11, for example) needs no extract-vmlinux: choose the `vmlinuz` itself and btf2ida unpacks it. An arm64 `Image.gz` (Ubuntu's arm64 `vmlinuz`) is unpacked too, and so is an EFI zboot `vmlinuz` (`MZ` ... `zimg`; checked on synthetic files only).
+Without `unzstd`, extract-vmlinux still exits 0 and writes the bzImage unchanged; btf2ida then says "install zstd". A kernel packed with gzip, xz, lzma or bzip2 (Debian 11, for example) needs no extract-vmlinux: choose the `vmlinuz` itself and btf2ida unpacks it. An arm64 `Image.gz` (Ubuntu's arm64 `vmlinuz`) is unpacked too, and so is an EFI zboot `vmlinuz` packed with gzip, xz or lzma (`MZ` ... `zimg`; a zstd one needs extract-vmlinux with zstd installed; checked on synthetic files only).
 
 SHA-256 of the results: `nf_tables.ko` 670cb309625f77c0…, `vmlinux` f741142f44058b03…. If the Debian pool no longer has this version, the same package is kept on snapshot.debian.org; another Debian 13 cloud kernel works the same way, with other numbers.
 

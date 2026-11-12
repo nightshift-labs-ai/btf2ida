@@ -369,7 +369,8 @@ def bzimage_payload(blob):
 
 
 # EFI zboot (arm64, riscv; drivers/firmware/efi/libstub/zboot-header.S): "MZ", "zimg" at 4, payload offset and size
-# at 8 and 12, the compression name at 24 (the kernel Makefile writes gzip, lzma, lzo, lz4, xzkern or zstd22).
+# at 8 and 12, the compression name at 24 (Makefile.zboot writes gzip, lzma, lzo, lz4, xzkern or zstd22 up to 6.13;
+# gzip or zstd since 6.14).
 ZBOOT_KINDS = (("gzip", "gzip"), ("lzma", "lzma"), ("xz", "xz"), ("zstd", "zstd"), ("lz4", "lz4"), ("lzo", "lzo"))
 
 
@@ -405,7 +406,7 @@ def btf_from_archive(blob):
 def unpack_kernel_image(blob, path):
     """The kernel inside a compressed kernel file chosen as the vmlinux, else blob itself.
 
-    An x86 bzImage or an EFI zboot image packed with gzip, xz, lzma or bzip2 is unpacked here (Python's standard library); zstd, lz4 and lzo
+    An x86 bzImage packed with gzip, xz, lzma or bzip2, or an EFI zboot image packed with gzip, xz or lzma, is unpacked here (Python's standard library); zstd, lz4 and lzo
     are not, and the error says what to install. A whole-file gzip (an arm64 Image.gz, as Ubuntu ships its arm64
     vmlinuz) is unpacked too, and a BTFHub archive (<release>.btf.tar.xz) gives the BTF file inside it.
     """
