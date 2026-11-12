@@ -72,6 +72,18 @@ def import_in_batches(declarations, parse, batch=1000, progress=None):
     return failed
 
 
+def retry_with_raw_bytes(failed, generator, raw):
+    """IDA rejected the declarations `failed` (generator's): offer each struct/union again as `raw` (a Generator with
+    bitfields=False) declares it, with its bitfields as raw bytes; any other declaration is offered as it was. A struct
+    that holds a rejected one by value was rejected too (incomplete type) and comes after it in `failed`, so it is
+    offered again after it. Returns (the declarations IDA still rejects, the tags it took with raw bytes)."""
+    tag_of = {text: tag for tag, text in generator.struct_text.items()}
+    retry = [raw.struct_text.get(tag_of.get(text), text) for text in failed]
+    still = import_in_batches(retry, parse_batch)
+    rejected = set(still)
+    return still, [tag_of[old] for old, new in zip(failed, retry) if new != old and new not in rejected]
+
+
 OVERRUN = ("string offset out of range", "corrupt BTF: type")  # parser errors of split BTF that overruns its base
 
 
@@ -673,12 +685,13 @@ def replace_type(tag, text):
     return tif.set_named_type(ida_typeinf.get_idati(), tag, ida_typeinf.NTF_REPLACE) == ida_typeinf.TERR_OK
 
 
-def check_bitfield_layouts(generator, raw_generator):
+def check_bitfield_layouts(generator, raw_generator, raw_tags=()):
     """After the import: compare IDA's layout of every struct/union with bitfields (generator.bitfield_layout) with
     what btf2c declared from the BTF: its size, each C bitfield's bit offset and width, no other named bitfield, and
     the offsets of its direct members. One that differs is re-declared from raw_generator() (a Generator with
-    bitfields=False: raw bytes, the names in a comment) and checked again. Returns the summary line, or None when no
-    struct has bitfields. Checked only against fake ida_typeinf modules: real IDA was not run."""
+    bitfields=False: raw bytes, the names in a comment) and checked again. raw_tags: those IDA rejected with C
+    bitfields and took with raw bytes (retry_with_raw_bytes), so raw bytes are expected there. Returns the summary
+    line, or None when no struct has bitfields. Checked only against fake ida_typeinf modules: real IDA was not run."""
     layouts = generator.bitfield_layout
     if not layouts:
         return None
@@ -690,6 +703,8 @@ def check_bitfield_layouts(generator, raw_generator):
     members = generator.expected()
     differ, missing, with_c = [], 0, 0
     for tag, (size, fields) in sorted(layouts.items()):
+        if tag in raw_tags:
+            fields = []  # declared again with raw bytes after IDA rejected its C bitfields
         try:
             found = ida_layout(tag)
         except Exception:  # noqa: BLE001  (no answer from IDA: counted as not found)
@@ -703,6 +718,8 @@ def check_bitfield_layouts(generator, raw_generator):
             differ.append((tag, size, why))
     checked = len(layouts) - missing
     not_found = "; %d not found in IDA's local types" % missing if missing else ""
+    if not checked:
+        return "Bitfield layout not checked in IDA: none of the %d structs/unions with bitfields is in IDA's local types" % missing
     if not differ:
         return "Bitfield layout checked in IDA: %d structs/unions with bitfields (%d with C bitfields) have the BTF's " \
                "size, bitfield positions and member offsets%s" % (checked, with_c, not_found)
@@ -848,11 +865,27 @@ def run_import(vmlinux=None, ask=True, force=False, bitfields=True):
         ida_kernwin.replace_wait_box("BTF2IDA: applying prototypes (%d of %d)" % (done, total))
         return ida_kernwin.user_cancelled()
 
+    raw_generators = []
+
+    def raw_generator():  # the same declarations with every bitfield as raw bytes: built once, when needed
+        if not generator.bitfields:
+            return generator
+        if not raw_generators:
+            raw_generators.append(btf2c.Generator(data, pointer_size, bool_name=generator.bool_name, bitfields=False))
+            raw_generators[0].declarations()
+        return raw_generators[0]
+
     failed = import_in_batches(declarations, parse_batch, progress=types_progress)
+    took_raw = []
+    if failed and generator.bitfields and not ida_kernwin.user_cancelled():  # bitfield_note is None here
+        ida_kernwin.replace_wait_box("BTF2IDA: importing %d rejected declarations again, bitfields as raw bytes" % len(failed))
+        failed, took_raw = retry_with_raw_bytes(failed, generator, raw_generator())
+        if took_raw:
+            bitfield_note = "Bitfields kept as raw bytes (names in a comment) in %d structs/unions: IDA rejected their " \
+                            "declaration with C bitfields (first: %s)" % (len(took_raw), took_raw[0])
     layout_note = None
     if not ida_kernwin.user_cancelled():  # does IDA lay out the bitfields as declared? (if not: raw bytes there)
-        layout_note = check_bitfield_layouts(generator, lambda: generator if not generator.bitfields else btf2c.Generator(
-            data, pointer_size, bool_name=generator.bool_name, bitfields=False))
+        layout_note = check_bitfield_layouts(generator, raw_generator, raw_tags=set(took_raw))
     named = name_exports() if prototypes and not ida_kernwin.user_cancelled() else 0
     result = apply_prototypes(prototypes, proto_progress, imported)
     if data.base is not None or source == SOURCE_NO_OWN_BTF:

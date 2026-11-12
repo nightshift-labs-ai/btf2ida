@@ -712,6 +712,61 @@ raw_task = [c[1] for c in calls if c[0] == "parse_decl"]
 assert len(raw_task) == 1 and raw_task[0].startswith("struct task {\n") and "__bits_4[1]; /* a:3@0, b:5@3 */" in raw_task[0], raw_task
 assert ida_types["task"] is RAW_IN_IDA["task"]
 assert "Bitfield layout checked in IDA: 1 structs/unions with bitfields (0 with C bitfields)" in m.run_import(bitfields=False)
+# IDA rejects a declaration with C bitfields (not seen in IDA; for example a bitfield syntax it does not take): it is
+# offered again with raw bytes, and the layout check then expects raw bytes there. A struct that holds a rejected one by
+# value is rejected too (incomplete type) and is offered again after it. Fake parse_decls: rejects each struct whose body
+# has `refuse` (or raw bytes, unless raw_ok) or holds by value a struct IDA does not have; a raw one it takes is RAW_IN_IDA.
+def picky_parse(refuse, raw_ok=True):
+    def parse(text, flags):
+        calls.append(("parse", text, flags))
+        errors = 0
+        for tag, body in re.findall(r"^struct (\w+) \{\n(.*?)\n\};$", text, re.S | re.M):
+            if refuse in body or ("__bits_" in body and not raw_ok) or any(
+                    held not in ida_types for held in re.findall(r"^ *struct (\w+) \w+;$", body, re.M)):
+                errors += 1
+            elif "__bits_" in body:
+                ida_types[tag] = RAW_IN_IDA[tag]
+        return errors
+    return parse
+
+
+real_parse_decls = idc.parse_decls
+traw = btf2c.Generator(B.BTF(raw), bitfields=False)
+traw.declarations()
+for raw_ok in (True, False):
+    ida_types.clear()
+    idc.parse_decls = picky_parse("b:5;", raw_ok)
+    del calls[:]
+    message = m.run_import()
+    assert [c[1] for c in calls if c[0] == "parse"][-1] == traw.struct_text["task"], calls  # offered again with raw bytes
+    if raw_ok:
+        assert "1 typedefs (0 rejected by IDA)" in message and "Bitfields kept as raw bytes (names in a comment) in 1 " \
+            "structs/unions: IDA rejected their declaration with C bitfields (first: task)" in message, message
+        assert "Bitfield layout checked in IDA: 1 structs/unions with bitfields (0 with C bitfields) have the BTF's size" in message, message
+        assert ida_types["task"] is RAW_IN_IDA["task"] and not [c for c in calls if c[0] == "parse_decl"], calls
+    else:  # rejected with raw bytes too: counted as rejected, and the layout line does not claim a check
+        assert "1 typedefs (1 rejected by IDA)" in message and "First rejected declaration: struct task {\n  int private_;\n" \
+            "  unsigned char __bits_4[1];" in message and "IDA rejected their declaration" not in message, message
+        assert "Bitfield layout not checked in IDA: none of the 1 structs/unions with bitfields is in IDA's local types" in message, message
+emb = Build()
+emb.t("unsigned int", 1, 0, 4, struct.pack("<I", 32))                                                              # 1
+emb.t("b_inner", 4, 2, 4, kflag=1, extra=struct.pack("<IIIIII", emb.s("p"), 1, 3 << 24, emb.s("q"), 1, 5 << 24 | 3))  # 2
+emb.t("a_outer", 4, 2, 8, kflag=1, extra=struct.pack("<IIIIII", emb.s("inner"), 2, 0, emb.s("r"), 1, 1 << 24 | 32))   # 3
+emb.t("c_plain", 4, 1, 4, struct.pack("<III", emb.s("held"), 2, 0))                                               # 4  no bitfields
+emb_raw = btf2c.Generator(B.BTF(emb.blob()), bitfields=False)
+emb_raw.declarations()
+RAW_IN_IDA.update(b_inner=(4, [Udm("__bits_0", 0, 8), Udm("__pad_1", 8, 24)]),
+                  a_outer=(8, [Udm("inner", 0, 32), Udm("__bits_4", 32, 8), Udm("__pad_5", 40, 24)]))
+m.find_btf = lambda *args: (B.BTF(emb.blob()), "the loaded segments")
+ida_types.clear()
+idc.parse_decls = picky_parse("p:3;")  # b_inner's C bitfields; a_outer and c_plain (hold b_inner) fail as incomplete
+del calls[:]
+message = m.run_import()
+retried = "\n".join(emb_raw.struct_text[tag] for tag in ("b_inner", "a_outer", "c_plain"))  # c_plain: the same text
+assert [c[1] for c in calls if c[0] == "parse"][-1] == retried, calls  # c_plain, with no bitfields, is not counted below
+assert "(0 rejected by IDA)" in message and "in 2 structs/unions: IDA rejected their declaration with C bitfields (first: " \
+    "b_inner)" in message and "Bitfield layout checked in IDA: 2 structs/unions with bitfields (0 with C bitfields)" in message, message
+m.find_btf, idc.parse_decls = real_load_btf, real_parse_decls
 kw.user_cancelled = lambda: True  # cancelled: no check
 assert "Bitfield layout" not in m.run_import()
 kw.user_cancelled = lambda: False
