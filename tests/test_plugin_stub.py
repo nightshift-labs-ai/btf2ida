@@ -569,7 +569,7 @@ cgen = btf2c.Generator(B.BTF(c.blob()))
 protos = dict(cgen.prototypes())
 assert protos == {"code_user": "int code_user(code code_, int task, bool on)", "task": "int task(code code_, int task, bool on)"}, protos
 assert m.unnamed(protos["task"], "task") == "int __btf2ida_fn(code code_, int task, bool on)"
-assert "#include <stdbool.h>" in btf2c.header(cgen)
+assert "#include" not in btf2c.header(cgen), "the header must stay parseable by IDA (no includes)"
 assert dict(btf2c.Generator(B.BTF(c.blob()), bool_name="_BOOL1").prototypes())["task"] == "int task(code code_, int task, _BOOL1 on)"
 print("stub test OK: fixed declarator name for SetType, rejected prototypes named, typedef-named parameters renamed, _Bool as bool")
 # Undefined symbols of the input module vs the database: explains an import count of 0.

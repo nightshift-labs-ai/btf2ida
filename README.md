@@ -153,7 +153,7 @@ All numbers from runs on real kernels; the scripts are in `tests/`.
 | Check | Result |
 |---|---|
 | BTF layouts vs an independent DWARF-derived symbol file (`dwarf2json` ISF), Debian 13 kernel 6.12.115, `tests/check_against_dwarf.py` | 8,884 structs/unions compared, 0 size mismatches; 54,303 members compared, 0 offset mismatches (bitfield positions are not compared) |
-| Generated C header compiled with `gcc -fsyntax-only`, WSL2 6.18 kernel (`/sys/kernel/btf/vmlinux`) and the carved Debian 13 data | compiles; 65,664 and 50,366 function prototypes, which also compile together with the header (on Debian 13 one, `dmi_callback`, has the same name as a typedef; `--prototypes` writes it as a comment) |
+| Generated C header compiled with `gcc -fsyntax-only -include stdbool.h`, WSL2 6.18 kernel (`/sys/kernel/btf/vmlinux`) and the carved Debian 13 data | compiles; 65,664 and 50,366 function prototypes, which also compile together with the header (on Debian 13 one, `dmi_callback`, has the same name as a typedef; `--prototypes` writes it as a comment) |
 | BTF carved from raw memory dumps of a running Debian 13 VM (1 GB, ELF core) | 113,902 types found in a few seconds (1 to 3 s measured) |
 | `--asserts`: 59,761 generated `_Static_assert` size and offset checks compiled with gcc against the generated header, the MemLens demo `kernel.elf` (the Debian 13 cloud-amd64 vmlinux `f741142f` gives 56,214) | all pass |
 | Split BTF of a kernel module (`nf_tables.ko`, Debian 13) with `--base vmlinux` | header generated and compiles |
