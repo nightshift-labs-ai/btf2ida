@@ -128,6 +128,14 @@ for fold in (btf2c.Generator(fdata, bitfields=False), btf2c.Generator(big_endian
     otext = btf2c.header(fold)  # the raw-byte form: on request, and for big-endian BTF (not checked there)
     assert "__bits_0[2]; /* ready:1@0, mode:3@1, refs:8@6 */" in otext and "__bits_c[1]" in otext and "__bits_10[8]" in otext, otext
     assert "ready:1;" not in otext and "addr:52;" not in otext and fold.stats["bitfields"] == 0, otext
+with tempfile.TemporaryDirectory() as folder:  # the gcc layout proof of tests/check_bitfields.py, GCC and MSVC rules
+    path = os.path.join(folder, "flags.btf")
+    with open(path, "wb") as handle:
+        handle.write(f.blob())
+    run = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_bitfields.py"), path],
+                         capture_output=True, text=True)
+    assert run.returncode == 0 and run.stdout.rstrip().endswith("PASS"), run.stdout + run.stderr
+    assert "fields checked: 7 (3 signed)" in run.stdout and "bitfield checks 28, failures 0" in run.stdout, run.stdout
 # The toy demo's expected header is what btf2c.py writes for it now.
 toy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demo")
 with open(os.path.join(toy, "toy_kernel.elf"), "rb") as handle:
@@ -135,7 +143,7 @@ with open(os.path.join(toy, "toy_kernel.elf"), "rb") as handle:
 with open(os.path.join(toy, "expected_types.h"), encoding="utf-8") as handle:
     assert handle.read() == toy_text, "demo/expected_types.h is out of date"
 assert "  unsigned short ready:1;\n  unsigned short mode:3;\n  unsigned short refs:12;\n  unsigned char __pad_a[2];\n" in toy_text
-print("stub test OK: bitfield groups of 1/2/4/8 bytes as full C bitfields (signed kept), others raw")
+print("stub test OK: bitfield groups of 1/2/4/8 bytes as full C bitfields (signed kept), others raw; gcc layout check passes")
 
 # An empty struct (size 0 in BTF) gets a forward declaration only and is counted apart from real bodies.
 e = Build()
