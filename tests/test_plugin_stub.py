@@ -474,6 +474,17 @@ with tempfile.TemporaryDirectory() as folder:
         except B.BTFError as error:
             assert not isinstance(error, B.BaseMismatch) and "does not match" not in str(error), (label, error)
             assert "this module's BTF could not be read on the chosen vmlinux (unknown BTF kind 30" in str(error), (label, error)
+    few = Build()  # as many string bytes as vb but fewer types: the module's type ids overrun it, also a mismatch
+    few.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))
+    few.strs += b"\0" * (len(vb.strs) - len(few.strs))
+    with open(short, "wb") as handle:
+        handle.write(few.blob())
+    nalt.get_input_file_path = lambda: paths["mod.ko"]
+    try:
+        m.run_import(short, ask=False)
+        raise AssertionError("a base with fewer types was accepted")
+    except B.BaseMismatch as error:
+        assert "does not match the chosen vmlinux (corrupt BTF: type" in str(error), error
     kw.ask_file = lambda save, default, prompt: paths["vmlinux.btf"]
     nalt.get_input_file_path = lambda: nobtf
     kw.ask_yn = lambda deflt, text: calls.append(("ask_yn", deflt, text)) or kw.ASKBTN_NO
