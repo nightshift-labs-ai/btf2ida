@@ -76,7 +76,7 @@ try:
     B.unpack_kernel_image(zboot(b"\x28\xb5\x2f\xfd" + bytes(50), b"zstd22"), "vmlinuz.efi")
     raise SystemExit("zstd zboot was accepted")
 except B.BTFError as error:
-    assert "install zstd" in str(error), error
+    assert "install zstd" in str(error) and "EFI zboot image" in str(error) and "file vmlinux" not in str(error), error
 assert B.zboot_payload(b"MZ" + bytes(200)) is None                               # a plain PE file (arm64 Image) is not zboot
 import io  # noqa: E402
 import tarfile  # noqa: E402

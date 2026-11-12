@@ -440,10 +440,11 @@ def unpack_kernel_image(blob, path):
                            "unpacked (%s): extract it with scripts/extract-vmlinux, or use a copy of "
                            "/sys/kernel/btf/vmlinux from the same kernel" % (path, form, kind, error))
     if kind in UNPACK_TOOLS:
+        result = ("without it, extract-vmlinux still exits 0 and writes the file unchanged; `file vmlinux` must say ELF"
+                  if form == "bzImage" else "the result is an uncompressed Image, which btf2ida reads")
         raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (%s) packed with %s, which btf2ida "
-                       "cannot unpack: install %s and run scripts/extract-vmlinux on it again (without it, "
-                       "extract-vmlinux still exits 0 and writes the file unchanged; `file vmlinux` must say ELF), "
-                       "or use a copy of /sys/kernel/btf/vmlinux from the same kernel" % (path, form, kind, UNPACK_TOOLS[kind]))
+                       "cannot unpack: install %s and run scripts/extract-vmlinux on it again (%s), or use a copy of "
+                       "/sys/kernel/btf/vmlinux from the same kernel" % (path, form, kind, UNPACK_TOOLS[kind], result))
     raise BTFError("the chosen vmlinux (%s) is a compressed kernel image (%s) in a format btf2ida does not know: "
                    "extract it with scripts/extract-vmlinux, or use a copy of /sys/kernel/btf/vmlinux from the same "
                    "kernel" % (path, form))
