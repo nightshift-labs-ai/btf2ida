@@ -539,6 +539,15 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
     return "\n".join(lines)
 
 
+def bool_name():
+    """IDA's `bool` takes its size from the database's compiler setting; BTF's _Bool is 1 byte, so use IDA's fixed
+    1-byte _BOOL1 unless that setting is 1."""
+    try:
+        return "bool" if ida_ida.inf_get_cc_size_b() == 1 else "_BOOL1"
+    except Exception:  # noqa: BLE001  (no compiler information: the fixed-size type is always right)
+        return "_BOOL1"
+
+
 def run_import(vmlinux=None, ask=True):
     data, source = find_btf(vmlinux, ask)
     if data is None:
@@ -548,9 +557,7 @@ def run_import(vmlinux=None, ask=True):
                              "cannot read it or tell whether it is a kernel module. Put the file back at that path." % path)
         raise B.BTFError("no BTF found in the input file or the loaded segments.")
     pointer_size = 8 if ida_ida.inf_is_64bit() else 4
-    # IDA's `bool` takes its size from the database's compiler setting; _BOOL1 is IDA's bool of exactly 1 byte (BTF's).
-    bool_size = getattr(ida_ida, "inf_get_cc_size_b", lambda: 1)()
-    generator = btf2c.Generator(data, pointer_size, bool_name="bool" if bool_size == 1 else "_BOOL1")
+    generator = btf2c.Generator(data, pointer_size, bool_name=bool_name())
     # 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate; other
     # 32-bit kernels (ARM, MIPS, RISC-V) use their standard C calling convention. Unknown processor: treat as x86.
     procname = (getattr(ida_ida, "inf_get_procname", lambda: None)() or "").lower()

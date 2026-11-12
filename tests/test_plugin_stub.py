@@ -256,7 +256,13 @@ with tempfile.TemporaryDirectory() as folder:
     def no_dialog(*a):
         raise AssertionError("asked for a file although vmlinux was given")
     kw.ask_file = no_dialog
+    seen_bool, real_generator = [], m.btf2c.Generator
+    m.btf2c.Generator = lambda *args, **kwargs: seen_bool.append(kwargs.get("bool_name")) or real_generator(*args, **kwargs)
+    ida.inf_get_cc_size_b = lambda: 4                     # IDA's bool is 4 bytes in this database: _BOOL1 reaches btf2c
     message64 = m.run_import(paths["vmlinux.btf"])
+    m.btf2c.Generator = real_generator
+    del ida.inf_get_cc_size_b
+    assert seen_bool == ["_BOOL1"], seen_bool
     assert "BTF from the input file" in message64 and "32-bit database" not in message64, message64
     ida.inf_is_64bit = lambda: False  # 32-bit: types only, and the summary says why no prototype was applied
     message32 = m.run_import(paths["vmlinux.btf"])
@@ -532,6 +538,13 @@ res = m.apply_prototypes([("fn_a", "int fn_a(long x)"), ("fn_b", "int fn_b(long 
 assert [c[1] for c in calls if c[0] == "settype"] == [0x7600], calls
 assert (res["retyped"], res["applied"], res["kept"], res["void_removed"], res["void_asm"]) == (1, 1, 1, 1, 0), res
 assert ("del_tinfo", 0x7800) in calls and ("apply_tinfo", 0x7800, "memcpy", til.TINFO_GUESSED) in calls, calls
+addrs["late_asm"] = 0x7B00               # btf2ida's own void(void) on a name that a later list marks as assembly
+res = m.apply_prototypes([("late_asm", "void late_asm(void)")])
+assert res["applied"] == 1 and 0x7B00 in store, res
+saved_asm, m.ASM_VOID = m.ASM_VOID, m.ASM_VOID | {"late_asm"}
+res = m.apply_prototypes([("late_asm", "void late_asm(void)")])
+assert res["void_removed"] == 1 and 0x7B00 not in store and 0x7B00 not in shown, (res, store)  # record deleted too
+m.ASM_VOID = saved_asm
 assert shown[0x7700] == "IDA:long fn_b(long y);", "a type edited by hand must stay"
 addrs["fn_c"] = 0x7A00                                                   # run 1: btf2ida sets int fn_c(int x)
 res = m.apply_prototypes([("fn_c", "int fn_c(int x)")])
@@ -570,6 +583,12 @@ protos = dict(cgen.prototypes())
 assert protos == {"code_user": "int code_user(code code_, int task, bool on)", "task": "int task(code code_, int task, bool on)"}, protos
 assert m.unnamed(protos["task"], "task") == "int __btf2ida_fn(code code_, int task, bool on)"
 assert "#include" not in btf2c.header(cgen), "the header must stay parseable by IDA (no includes)"
+ida.inf_get_cc_size_b = lambda: 1
+assert m.bool_name() == "bool"
+ida.inf_get_cc_size_b = lambda: 4                                      # a database whose compiler bool is 4 bytes
+assert m.bool_name() == "_BOOL1"
+del ida.inf_get_cc_size_b
+assert m.bool_name() == "_BOOL1"
 assert dict(btf2c.Generator(B.BTF(c.blob()), bool_name="_BOOL1").prototypes())["task"] == "int task(code code_, int task, _BOOL1 on)"
 print("stub test OK: fixed declarator name for SetType, rejected prototypes named, typedef-named parameters renamed, _Bool as bool")
 # Undefined symbols of the input module vs the database: explains an import count of 0.
