@@ -153,15 +153,19 @@ class Generator:
     def params(self, t):
         if not t.data:
             return "void"
-        out = []
+        out, used = [], {ident(name) for name, _ in t.data if name}
         for index, (name, type_id) in enumerate(t.data):
             if type_id == 0 and not name:
                 out.append("...")
                 continue
-            # a parameter named like a typedef (size_t code, where `code` is also a typedef) gets "_": a parser that
-            # looks names up as types may read it as one. Tag names (struct page *page) are left as they are.
+            # a parameter named like a typedef (size_t code, where `code` is also a typedef) gets "_" (more if that is
+            # taken too): a parser that looks names up as types may read it as one. Tag names (struct page *page) stay.
             param = ident(name) if name else "a%d" % (index + 1)
-            out.append(self.decl(type_id, param + "_" if param in self.typedef_names() else param))
+            if param in self.typedef_names():
+                while param in self.typedef_names() or param in used:
+                    param += "_"
+                used.add(param)
+            out.append(self.decl(type_id, param))
         return ", ".join(out)
 
     def decl(self, type_id, inner):

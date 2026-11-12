@@ -584,6 +584,12 @@ cgen = btf2c.Generator(B.BTF(c.blob()))
 protos = dict(cgen.prototypes())
 assert protos == {"code_user": "int code_user(code code_, int task, bool on)", "task": "int task(code code_, int task, bool on)"}, protos
 assert m.unnamed(protos["task"], "task") == "int __btf2ida_fn(code code_, int task, bool on)"
+d = Build()
+d.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                   # 1
+d.t("code", 8, 0, 1)                                                                  # 2  typedef int code
+d.t("", 13, 2, 1, struct.pack("<IIII", d.s("code"), 2, d.s("code_"), 1))              # 3  int (code code, int code_)
+d.t("clash", 12, 0, 3)                                                                # 4
+assert dict(btf2c.Generator(B.BTF(d.blob())).prototypes())["clash"] == "int clash(code code__, int code_)"
 assert "#include" not in btf2c.header(cgen), "the header must stay parseable by IDA (no includes)"
 ida.inf_get_cc_size_b = lambda: 1
 assert m.bool_name() == "bool"
