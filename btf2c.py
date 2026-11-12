@@ -51,6 +51,7 @@ class Generator:
         self.stats = {"structs": 0, "unions": 0, "empty": 0, "base_only": 0, "opaque_members": 0, "enums": 0, "typedefs": 0, "bitfields_as_storage": 0, "dropped_members": 0}
         self.dropped = []
         self.scope = 0
+        self._typedef_names = None
         for t in data:  # Struct, union, enum tags and typedefs share one namespace in IDA.
             if t.kind in (B.STRUCT, B.UNION, B.ENUM, B.ENUM64) or (t.kind == B.FWD and not t.name == ""):
                 self.tag(t)
@@ -142,6 +143,12 @@ class Generator:
     def sized(t):
         return {1: "unsigned char", 2: "unsigned short", 4: "unsigned int", 8: "unsigned long long"}[t.size]
 
+    def typedef_names(self):
+        """Names of the typedefs the header declares (aliased ones are emitted as their target, so not included)."""
+        if self._typedef_names is None:
+            self._typedef_names = {self.tags[t.id] for t in self.btf if t.kind == B.TYPEDEF and not self.typedef_alias(t)}
+        return self._typedef_names
+
     def params(self, t):
         if not t.data:
             return "void"
@@ -150,7 +157,10 @@ class Generator:
             if type_id == 0 and not name:
                 out.append("...")
                 continue
-            out.append(self.decl(type_id, ident(name) if name else "a%d" % (index + 1)))
+            # a parameter named like a typedef (size_t code, where `code` is also a typedef) gets "_": a parser that
+            # looks names up as types may read it as one. Tag names (struct page *page) are left as they are.
+            param = ident(name) if name else "a%d" % (index + 1)
+            out.append(self.decl(type_id, param + "_" if param in self.typedef_names() else param))
         return ", ".join(out)
 
     def decl(self, type_id, inner):

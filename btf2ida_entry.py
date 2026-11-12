@@ -333,6 +333,13 @@ def remove_void_void(address, name, own, result):
     result["void_removed"] += 1
 
 
+def unnamed(declaration, name):
+    """The declaration with the function's own name replaced by a fixed one. IDA ignores that name when it applies a
+    type (idc.SetType), and a kernel function named like a struct, union or enum tag (bpf_spin_lock, 87 on Debian 13)
+    could otherwise clash with the type of that name in IDA's parser."""
+    return re.sub(r"(?<![A-Za-z0-9_$.])%s(?=\()" % re.escape(name), "__btf2ida_fn", declaration, count=1)
+
+
 def set_prototype(address, name, declaration, result, is_import=False, own=None):
     ours = own is not None and own.altval_ea(address) != 0 and own.altval_ea(address) == type_mark(address)
     if ida_nalt.is_userti(address) and not ours:  # typed by hand (or changed by hand since btf2ida typed it)
@@ -345,7 +352,7 @@ def set_prototype(address, name, declaration, result, is_import=False, own=None)
             remove_void_void(address, name, own, result)
         else:
             result["void_skipped"] += 1
-    elif idc.SetType(address, declaration + ";"):
+    elif idc.SetType(address, unnamed(declaration, name) + ";"):
         result["imports" if is_import else "applied"] += 1
         if ours:
             result["retyped"] += 1
@@ -439,6 +446,9 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
                      "prototype for them; IDA's own type is kept)" % result["void_skipped"])
     if failed:
         lines.append("First rejected declaration: %s" % failed[0][:200])
+    rejected = result["rejected"] + result["imports_rejected"]
+    if rejected:
+        lines.append("Prototypes rejected by IDA (first %d of %d): %s" % (min(3, len(rejected)), len(rejected), ", ".join(rejected[:3])))
     return "\n".join(lines)
 
 

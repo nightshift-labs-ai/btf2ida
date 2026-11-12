@@ -201,7 +201,7 @@ import btf2ida_entry as m  # noqa: E402
 plugin = m.PLUGIN_ENTRY()
 assert plugin.init() == api.PLUGIN_KEEP
 assert m.ApplyBTF().activate(None) == 1
-assert [c for c in calls if c[0] == "settype"] == [("settype", 0x1000, "int get_it(struct task *arg);")], calls
+assert [c for c in calls if c[0] == "settype"] == [("settype", 0x1000, "int __btf2ida_fn(struct task *arg);")], calls
 assert all(c[2] == idc.PT_SIL | idc.PT_PAK1 for c in calls if c[0] == "parse")
 parsed = "\n".join(c[1] for c in calls if c[0] == "parse")
 assert "struct task {" in parsed and "#pragma" not in parsed
@@ -247,8 +247,8 @@ with tempfile.TemporaryDirectory() as folder:
     funcs.get_func = lambda ea: types.SimpleNamespace(start_ea=ea) if ea in (0x1000, 0x1100) else None
     del calls[:]
     assert m.ApplyBTF().activate(None) == 1
-    assert [c for c in calls if c[0] == "settype"] == [("settype", 0x1000, "int mod_fn(int x);"),
-                                                        ("settype", 0x8000, "int imp_fn(int x);")], calls
+    assert [c for c in calls if c[0] == "settype"] == [("settype", 0x1000, "int __btf2ida_fn(int x);"),
+                                                        ("settype", 0x8000, "int __btf2ida_fn(int x);")], calls
     message = [c[1] for c in calls if c[0] == "info"][0]
     assert "applied to 1 functions" in message and "not in this database 1;" in message, message
     assert "Typed 1 imported kernel functions in the extern segment" in message, message
@@ -303,7 +303,7 @@ with tempfile.TemporaryDirectory() as folder:
     del calls[:]
     message = m.run_import()
     assert "no BTF of its own" in message and "Typed 1 imported kernel functions" in message, message
-    assert [c for c in calls if c[0] == "settype"] == [("settype", 0x8000, "int imp_fn(int x);")], calls
+    assert [c for c in calls if c[0] == "settype"] == [("settype", 0x8000, "int __btf2ida_fn(int x);")], calls
     ida.inf_is_64bit = lambda: False  # 32-bit: the summary must not claim the imports were typed
     message32 = m.run_import()
     assert "no prototype was applied (32-bit" in message32 and "Typed " not in message32, message32
@@ -505,4 +505,28 @@ res = m.apply_prototypes([("fn_a", "int fn_a(int x)")])
 assert res["applied"] == 1 and res["retyped"] == 0, res
 del sys.modules["ida_typeinf"]
 print("stub test OK: a re-run re-types btf2ida's own unchanged prototypes, keeps hand edits, removes an old void(void) on memcpy")
+# Names that clash with types: SetType gets a fixed declarator (IDA ignores the name), and btf2c renames a parameter
+# named like a typedef or tag; rejected prototypes are named in the summary.
+assert m.unnamed("void bpf_spin_lock(struct bpf_spin_lock *lock)", "bpf_spin_lock") == "void __btf2ida_fn(struct bpf_spin_lock *lock)"
+assert m.unnamed("int (*get_op(int x))(void *get_op_arg)", "get_op") == "int (*__btf2ida_fn(int x))(void *get_op_arg)"
+assert m.unnamed("void f(int x)", "f") == "void __btf2ida_fn(int x)"
+assert m.unnamed("void x.f(int a)", "f") == "void x.f(int a)", "a name inside another identifier is left alone"
+gen = btf2c.Generator(B.BTF(raw))
+res = dict(m.apply_prototypes([]), rejected=["a", "b", "c", "d"], imports_rejected=["e"])
+text = m.report("x", gen, [], res)
+assert "Prototypes rejected by IDA (first 3 of 5): a, b, c" in text, text
+c = Build()
+c.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                   # 1
+c.t("code", 8, 0, 1)                                                                  # 2  typedef int code
+c.t("_Bool", 1, 0, 1, struct.pack("<I", 4 << 24 | 8))                                 # 3  _Bool
+c.t("", 13, 3, 1, struct.pack("<IIIIII", c.s("code"), 2, c.s("task"), 1, c.s("on"), 3))  # 4  int (code, int, _Bool)
+c.t("task", 4, 1, 4, struct.pack("<III", c.s("x"), 1, 0))                             # 5  struct task
+c.t("code_user", 12, 0, 4)                                                            # 6
+c.t("task", 12, 0, 4)                                                                 # 7  function named like a tag
+cgen = btf2c.Generator(B.BTF(c.blob()))
+protos = dict(cgen.prototypes())
+assert protos == {"code_user": "int code_user(code code_, int task, bool on)", "task": "int task(code code_, int task, bool on)"}, protos
+assert m.unnamed(protos["task"], "task") == "int __btf2ida_fn(code code_, int task, bool on)"
+assert "#include <stdbool.h>" in btf2c.header(cgen)
+print("stub test OK: fixed declarator name for SetType, rejected prototypes named, typedef-named parameters renamed, _Bool as bool")
 print("stub test OK (fake IDA modules)")

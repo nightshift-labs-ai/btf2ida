@@ -112,9 +112,10 @@ def main(argv):
         return 1
     print(summary)
     print("SetType calls: %d (%.1f s)" % (len(settype), time.time() - start))
-    shown = [decl for ea, decl in settype if ea >= EXTERN_BASE][:3]
-    for decl in shown:
-        print("  import typed: %s" % decl.strip())
+    by_address = {ea: name for name, ea in externs.items()}
+    shown = [(ea, decl) for ea, decl in settype if ea >= EXTERN_BASE][:3]
+    for ea, decl in shown:  # btf2ida passes IDA a fixed declarator name; show the import's own name here
+        print("  import typed: %s" % decl.strip().replace("__btf2ida_fn(", by_address.get(ea, "?") + "(", 1))
     return 0
 
 
