@@ -3,11 +3,16 @@
 
     python3 tests/check_against_dwarf.py vmlinux kernel.json.xz
 
-Sizes and member byte offsets; for the named bitfield members of named structs also the bit position and
+First the kernel release in the input's 'Linux version' banner is compared with the ISF's (its linux_banner, else
+the vmlinux-<release> name in its metadata): an ISF of another kernel is a failure, not a comparison. Raw BTF has
+no banner, so there the release is not checked (and the output says so). Then sizes and member byte offsets; for the named bitfield members of named structs also the bit position and
 width, and the signedness btf2c.py gives the C bitfield (from the BTF) against the DWARF type's. The ISF
 marks _Bool as signed (its own convention; a C _Bool bitfield reads 0 or 1), so _Bool is left out of
 the signedness comparison and counted apart.
+Exit 0 when the releases match (or one is unknown) and every comparison agrees, 1 on any mismatch or when no type
+was compared, 2 on bad arguments.
 """
+import base64
 import json
 import lzma
 import os
@@ -18,11 +23,34 @@ import btf as B  # noqa: E402
 import btf2c  # noqa: E402
 
 
-def main():
-    with open(sys.argv[1], "rb") as handle:
-        data = B.load(handle.read())
-    with lzma.open(sys.argv[2], "rt") as handle:
+def isf_releases(root):
+    """Kernel releases the ISF names: from its linux_banner constant, else from the vmlinux-<release> metadata names."""
+    banner = root.get("symbols", {}).get("linux_banner", {}).get("constant_data")
+    if banner:
+        found = B.kernel_releases(base64.b64decode(banner))
+        if found:
+            return found
+    names = [item.get("name", "") for item in root.get("metadata", {}).get("linux", {}).get("symbols", [])]
+    return {name[len("vmlinux-"):] for name in names if name.startswith("vmlinux-")}
+
+
+def main(argv):
+    if len(argv) != 2:
+        print("usage: python3 tests/check_against_dwarf.py <vmlinux> <kernel ISF .json.xz>", file=sys.stderr)
+        return 2
+    with open(argv[0], "rb") as handle:
+        blob = handle.read()
+    data = B.load(blob)
+    with lzma.open(argv[1], "rt") as handle:
         root = json.load(handle)
+    ours, theirs = B.kernel_releases(blob), isf_releases(root)
+    if ours and theirs and not ours & theirs:
+        print("kernel release %s, ISF release %s: DIFFERENT kernels, nothing compared"
+              % (" / ".join(sorted(ours)), " / ".join(sorted(theirs))))
+        return 1
+    print("kernel release %s" % ("matches the ISF: " + " / ".join(sorted(ours & theirs)) if ours and theirs else
+                                 "not checked (kernel: %s, ISF: %s)" % (" / ".join(sorted(ours)) or "no banner",
+                                                                        " / ".join(sorted(theirs)) or "none named")))
     isf, base_types, enums = root["user_types"], root.get("base_types", {}), root.get("enums", {})
     gen = btf2c.Generator(data)
     both = size_bad = fields = field_bad = 0
@@ -82,9 +110,10 @@ def main():
     print("bitfields compared %d; bit position or width mismatches %d; signedness compared %d, mismatches %d "
           "(_Bool left out: %d)" % (bitfields, bit_bad, signs, sign_bad, bools))
     print("first mismatches:", bad[:12])
+    failed = both == 0 or size_bad or field_bad or bit_bad or sign_bad
+    print("FAIL" if failed else "PASS")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        sys.exit("usage: python3 tests/check_against_dwarf.py <vmlinux> <kernel ISF .json.xz>")
-    main()
+    sys.exit(main(sys.argv[1:]))

@@ -145,6 +145,47 @@ with open(os.path.join(toy, "expected_types.h"), encoding="utf-8") as handle:
 assert "  unsigned short ready:1;\n  unsigned short mode:3;\n  unsigned short refs:12;\n  unsigned char __pad_a[2];\n" in toy_text
 print("stub test OK: bitfield groups of 1/2/4/8 bytes as full C bitfields (signed kept), others raw; gcc layout check passes")
 
+# tests/check_against_dwarf.py on a tiny BTF and a hand-written ISF: its exit status is the verdict (0 only when the
+# kernel releases match or one is unknown and nothing differs), so a mismatch cannot pass unnoticed.
+import base64  # noqa: E402
+import json  # noqa: E402
+import lzma  # noqa: E402
+p = Build()
+p.t("unsigned int", 1, 0, 4, struct.pack("<I", 32))                                   # 1
+p.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                  # 2
+p.t("pair", 4, 3, 8, kflag=1, extra=struct.pack("<" + "III" * 3, p.s("a"), 1, 3 << 24 | 0, p.s("b"), 2, 5 << 24 | 3, p.s("c"), 2, 32))
+
+
+def isf(size=8, b_position=3, b_type="int", release="9.9.9-test"):
+    bitfield = lambda position, length, name: {"kind": "bitfield", "bit_position": position, "bit_length": length,  # noqa: E731
+                                               "type": {"kind": "base", "name": name}}
+    return {"metadata": {"linux": {"symbols": [{"kind": "dwarf", "name": "vmlinux-" + release}]}},
+            "symbols": {"linux_banner": {"constant_data": base64.b64encode(b"Linux version %s (builder) #1\n\0" % release.encode()).decode()}},
+            "base_types": {"unsigned int": {"kind": "int", "signed": False, "size": 4}, "int": {"kind": "int", "signed": True, "size": 4}},
+            "user_types": {"pair": {"kind": "struct", "size": size, "fields": {
+                "a": {"offset": 0, "type": bitfield(0, 3, "unsigned int")}, "b": {"offset": 0, "type": bitfield(b_position, 5, b_type)},
+                "c": {"offset": 4, "type": {"kind": "base", "name": "int"}}}}}}
+
+
+dwarf_check = os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_against_dwarf.py")
+with tempfile.TemporaryDirectory() as folder:
+    kernel, bare, isf_path = (os.path.join(folder, name) for name in ("kernel.btf", "bare.btf", "isf.json.xz"))
+    with open(kernel, "wb") as handle:
+        handle.write(p.blob() + b"Linux version 9.9.9-test (builder) #1\n\0")
+    with open(bare, "wb") as handle:
+        handle.write(p.blob())
+    for kernel_file, kwargs, code, words in ((kernel, {}, 0, "matches the ISF: 9.9.9-test"), (bare, {}, 0, "not checked"),
+                                             (kernel, {"size": 12}, 1, "size mismatches 1"),
+                                             (kernel, {"b_position": 4}, 1, "bit position or width mismatches 1"),
+                                             (kernel, {"b_type": "unsigned int"}, 1, "signedness compared 2, mismatches 1"),
+                                             (kernel, {"release": "9.9.8-other"}, 1, "DIFFERENT kernels")):
+        with lzma.open(isf_path, "wt") as handle:
+            json.dump(isf(**kwargs), handle)
+        run = subprocess.run([sys.executable, dwarf_check, kernel_file, isf_path], capture_output=True, text=True)
+        assert run.returncode == code and words in run.stdout, (kwargs, run.returncode, run.stdout, run.stderr)
+    assert subprocess.run([sys.executable, dwarf_check], capture_output=True).returncode == 2
+print("stub test OK: check_against_dwarf exits 1 on a size, bit position, signedness or kernel release mismatch")
+
 # An empty struct (size 0 in BTF) gets a forward declaration only and is counted apart from real bodies.
 e = Build()
 e.t("int", 1, 0, 4, struct.pack("<I", 1 << 24 | 32))                                   # 1
