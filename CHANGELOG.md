@@ -4,7 +4,7 @@ Taken from the GitHub release notes. Newest first.
 
 ## Unreleased
 
-- IDA 9.5's default type parser is clang, which rejected one declaration on every kernel with a `va_list`: `typedef struct __va_list_tag __builtin_va_list[1];` (arm64: `struct __va_list`) redefines a compiler builtin. Typedefs named `__builtin_*` are now written as their BTF target, so `va_list` becomes `typedef struct __va_list_tag va_list[1];` and keeps BTF's layout whatever the parser's target. New `tests/check_clang.sh`: btf2c's header, prototypes and `--asserts` file under clang, x86_64 and aarch64 targets.
+- Standalone clang 22.1.4, the front end of IDA 9.5's default type parser, rejects one declaration on every kernel whose BTF has a `__builtin_va_list` typedef (7 of 8 tried): `typedef struct __va_list_tag __builtin_va_list[1];` (arm64: `struct __va_list`) redefines a compiler builtin. Not run in IDA. Typedefs named `__builtin_*` are now written as their BTF target, so `va_list` becomes `typedef struct __va_list_tag va_list[1];` and keeps BTF's layout whatever the parser's target. New `tests/check_clang.sh`: btf2c's header, prototypes and `--asserts` file under clang, x86_64 and aarch64 targets.
 
 ## v0.1.22 (2026-11-15)
 

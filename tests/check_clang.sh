@@ -2,11 +2,11 @@
 # Parse btf2c's output with clang, the front end of IDA 9.5's default type parser (TYPE_PARSER = "clang").
 #
 # usage: tests/check_clang.sh kernel.elf [kernel.elf ...]
-#   CLANG=/path/to/clang (default: clang)    CLANG_INCLUDE=dir with stdbool.h (optional; added with -isystem)
+#   CLANG=/path/to/clang (default: clang)    CLANG_INCLUDE=dir with stdbool.h (optional; added with -isystem; no spaces in the path)
 #   TARGETS="x86_64-linux-gnu aarch64-linux-gnu" (default)    PYTHON=python3 (default)
 #
 # For each kernel: btf2c writes the header, the prototypes and the --asserts file; then, for each target,
-#   1. clang -fsyntax-only -x c on header + prototypes (what the plugin sends to IDA, in one file)
+#   1. clang -fsyntax-only -x c on header + prototypes (close to what the plugin sends to IDA, in one file)
 #   2. clang -fsyntax-only -x c on the _Static_assert file (every struct/union size and member offset)
 # One line per (kernel, target, check) with the clang error count; exit 1 if any count is not 0.
 # clang only, not IDA: whether IDA's conversion of clang's AST keeps everything is not checked here.
@@ -18,6 +18,7 @@ TARGETS=${TARGETS:-"x86_64-linux-gnu aarch64-linux-gnu"}
 INC=""
 [ -n "${CLANG_INCLUDE:-}" ] && INC="-isystem $CLANG_INCLUDE"
 [ $# -ge 1 ] || { echo "usage: $0 kernel.elf [kernel.elf ...]" >&2; exit 2; }
+"$CLANG" --version > /dev/null 2>&1 || { echo "check_clang: cannot run $CLANG" >&2; exit 2; }
 "$CLANG" --version | head -1
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -39,7 +40,10 @@ for kernel in "$@"; do
             # shellcheck disable=SC2086
             (cd "$d" && "$CLANG" -target "$target" -fsyntax-only -ferror-limit=0 $INC -include stdbool.h -x c "$check.c") \
                 > "$d/$check.$target.log" 2>&1
+            status=$?
             errors=$(grep -c ' error: ' "$d/$check.$target.log")
+            # clang missing, killed or crashed: no error lines, but not a pass
+            [ "$status" -ne 0 ] && [ "$errors" -eq 0 ] && { echo "clang exit status $status"; errors=1; }
             warnings=$(grep -c ' warning: ' "$d/$check.$target.log")
             label="header+prototypes"
             [ "$check" = asserts ] && label="asserts($asserts)"
