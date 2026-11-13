@@ -45,7 +45,7 @@ SUFFIXES = (".isra.", ".constprop.", ".part.", ".cold", ".lto_priv")  # the comp
 # the summary's "Look at:" line names the first of these that got a prototype (the toy demo's function, then kernel
 # functions most readers know), else the typed function with the most struct pointer parameters
 LOOK_AT = ("demo_open", "tcp_sendmsg", "do_sys_openat2", "vfs_read", "vfs_write", "commit_creds")
-STRUCT_POINTER = re.compile(r"\bstruct\s+\w+\s*\*")
+STRUCT_POINTER = re.compile(r"^\s*(?:const\s+)?struct\s+\w+\s*\*")  # a parameter that is a pointer to a struct
 
 
 def parse_batch(text):
@@ -489,14 +489,39 @@ def set_prototype(address, name, declaration, result, is_import=False, own=None)
         result["imports_rejected" if is_import else "rejected"].append(name)
 
 
+def top_level_parameters(declaration, name):
+    """The parameters of the function name in its C declaration, split at the commas of its own parameter list only
+    (a callback type's parameters stay inside their parameter)."""
+    start = declaration.find(name + "(")
+    start = declaration.find("(") if start < 0 else start + len(name)
+    params, current, depth = [], "", 0
+    for ch in declaration[start:] if start >= 0 else "":
+        if ch == "(":
+            depth += 1
+            if depth == 1:
+                continue
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                params.append(current)
+                break
+        elif ch == "," and depth == 1:
+            params.append(current)
+            current = ""
+            continue
+        current += ch
+    return params
+
+
 def consider_example(result, address, name, declaration):
     """Keep in result["example"] the function the summary's "Look at:" line names: the first name of LOOK_AT that got
-    a prototype, else the one with the most struct pointer parameters (the lowest address on a tie)."""
+    a prototype, else the one with the most top-level struct pointer parameters (on a tie the shorter declaration,
+    then the lowest address)."""
     if name in LOOK_AT:
         rank = (1, -LOOK_AT.index(name))
     else:
-        rank = (0, len(STRUCT_POINTER.findall(declaration[declaration.find("("):])))
-    key = rank + (-address,)
+        rank = (0, sum(1 for p in top_level_parameters(declaration, name) if STRUCT_POINTER.match(p)))
+    key = rank + (-len(declaration), -address)
     if "example" not in result or key > result["example"][0]:
         result["example"] = (key, address, name, declaration.strip().rstrip(";"))
 
