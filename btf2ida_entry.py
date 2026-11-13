@@ -41,6 +41,20 @@ FILE_PROMPT = "FILTER vmlinux or raw BTF|*\nThis is a kernel module: choose vmli
 NO_OWN_BTF_PROMPT = ("FILTER vmlinux, raw BTF or BTFHub archive|*\nThis kernel module was built for %s and has no BTF of its "
                      "own: choose that kernel's vmlinux or a copy of its /sys/kernel/btf/vmlinux (an old distribution "
                      "kernel without BTF: BTFHub %s.btf.tar.xz)")
+# summary lines with a zero count: in the Output window only, not in the dialog
+ZERO_LINES = re.compile(r"^(Named 0 exported functions|Left untyped on purpose: 0 compiler clones|Kept as they were: 0 "
+                        r"functions)")
+
+
+def dialog_text(message):
+    """The summary for the dialog: the lines with a zero count left out (the Output window has them all)."""
+    lines = message.split("\n")
+    kept = [line for line in lines if not ZERO_LINES.match(line)]
+    if len(kept) < len(lines):
+        kept.append("(lines with nothing to report are only in the Output window)")
+    return "\n".join(kept)
+
+
 SPLIT_PROMPT = ("FILTER vmlinux or raw BTF|*\nThis kernel module was built for %s: choose that kernel's vmlinux (or a copy of "
                 "its /sys/kernel/btf/vmlinux)")  # split BTF needs that build's own base BTF: no BTFHub here
 
@@ -1037,7 +1051,7 @@ class ApplyBTF(ida_kernwin.action_handler_t):
             ida_kernwin.warning("BTF2IDA: %s" % problem)
         if message:
             ida_kernwin.msg("[BTF2IDA] %s\n" % message)
-            ida_kernwin.info(message.replace("%", "%%"))  # info() is printf-style in IDAPython (not wrapped like msg/warning)
+            ida_kernwin.info(dialog_text(message).replace("%", "%%"))  # info() is printf-style in IDAPython (not wrapped like msg/warning)
         return 1
 
     def update(self, ctx):
