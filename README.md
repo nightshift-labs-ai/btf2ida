@@ -43,6 +43,14 @@ hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/t
 
 [`demo/expected_members.txt`](demo/expected_members.txt) lists every memory access of the toy's `demo_*` functions with the member it touches, derived offline from `objdump -d` and btf2ida's layout (`tests/check_toy_members.py`).
 
+### A real module in two minutes
+
+Download [`btf2ida-try-module.zip`](https://github.com/nightshift-labs-ai/btf2ida/releases/download/try-module/btf2ida-try-module.zip) (1.7 MB): Debian 13's `nf_tables.ko` and its kernel's BTF as `vmlinux.btf` (sources and SHA-256 in its `README.txt`). No Linux tools needed.
+
+1. Unzip it and open `nf_tables.ko` in IDA (it takes seconds).
+2. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**, and choose `vmlinux.btf` when it asks for the module's kernel.
+3. Look at the import `nla_put` in the extern segment: it should be `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`. Expected in total: 488 of the module's own functions and 150 imported kernel functions typed (`python3 tests/check_module.py nf_tables.ko vmlinux.btf`, on a fake IDA database).
+
 ### A real kernel, ready with symbols and BTF
 
 Download `memlens-demo-debian13.zip` (22 MB) from the [MemLens demo-data release](https://github.com/nightshift-labs-ai/memlens/releases/tag/demo-data) (MemLens is our companion plugin that exports a running kernel from a memory image).
@@ -65,7 +73,7 @@ int vfs_getattr(const struct path *path, struct kstat *stat, u32 request_mask, u
 | A kernel with symbols | nothing | MemLens demo: 91.8% |
 | A distribution `vmlinuz` (x86-64) | `extract-vmlinux`, then `vmlinux-to-elf vmlinux kernel.elf` | Ubuntu mainline 7.0: 72.0% (68,830 of 95,537) |
 | Android GKI `boot.img` or raw `Image` | `vmlinux-to-elf Image kernel.elf` ([recipe](docs/KERNELS.md#android-gki-and-other-raw-images)) | GKI 6.1 / 6.6 / 6.12: 98.6% / 97.9% / 93.7% |
-| A kernel module `.ko` | choose its kernel's `vmlinux` when asked | `nf_tables.ko`: 488 own, 150 imports |
+| A kernel module `.ko` | choose its kernel's `vmlinux` (or its raw BTF) when asked | `nf_tables.ko`: 488 own, 150 imports ([kit](#a-real-module-in-two-minutes)) |
 | A kernel without BTF | choose a [BTFHub](https://github.com/aquasecurity/btfhub-archive) file when asked | as for its kind above |
 
 [vmlinux-to-elf](https://github.com/marin-m/vmlinux-to-elf) (`pipx install vmlinux-to-elf`) restores the function names a stripped or raw kernel keeps for kallsyms. Without it, a stripped `vmlinux` gets prototypes only for its exported functions, which btf2ida names from `__ksymtab` (13,840 on that Ubuntu kernel), and a raw `Image` gets types only. Recipes, downloads and all measurements: [docs/KERNELS.md](docs/KERNELS.md).

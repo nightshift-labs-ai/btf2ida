@@ -102,7 +102,7 @@ Measured with the same fake database as above on Debian 13 `nf_tables.ko` with i
 
 ### Try a real module
 
-A module opens in IDA in seconds, so it is the quickest try on real kernel code. Debian 13's cloud kernel package (35 MB) holds both the module and its kernel (Linux tools; `extract-vmlinux` needs `zstd` here):
+A module opens in IDA in seconds, so it is the quickest try on real kernel code. The ready-made [`btf2ida-try-module.zip`](https://github.com/nightshift-labs-ai/btf2ida/releases/download/try-module/btf2ida-try-module.zip) (1.7 MB) holds the two files below, with `vmlinux.btf` (the vmlinux's `.BTF` section, `objcopy -O binary --only-section=.BTF vmlinux vmlinux.btf`) in place of the 58 MB vmlinux; the counts are the same with either. To build them yourself: Debian 13's cloud kernel package (35 MB) holds both the module and its kernel (Linux tools; `extract-vmlinux` needs `zstd` here):
 
 ```
 curl -LO https://deb.debian.org/debian/pool/main/l/linux-signed-amd64/linux-image-6.12.115+deb13.1-cloud-amd64_6.12.115-2_amd64.deb

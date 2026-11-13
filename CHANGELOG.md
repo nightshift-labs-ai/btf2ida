@@ -4,6 +4,7 @@ Taken from the GitHub release notes. Newest first.
 
 ## Unreleased
 
+- New release asset [`btf2ida-try-module.zip`](https://github.com/nightshift-labs-ai/btf2ida/releases/download/try-module/btf2ida-try-module.zip) (1.7 MB): Debian 13's `nf_tables.ko` and its kernel's BTF as `vmlinux.btf`, for a real-kernel try in IDA on any OS; README "A real module in two minutes". `tests/check_module.py nf_tables.ko vmlinux.btf` prints the same counts as with the full vmlinux (488 own functions, 150 imports typed).
 - README rewritten as a front door: 1,270 words (was 4,415), 148 before "Try it" (was 457); the details moved to `docs/` (KERNELS, LIMITATIONS, VERIFICATION, USAGE, HOW_IT_WORKS).
 - Toy: press F5 before and after; the README quotes the source lines the pseudocode should match and says the `payload[i]` loop stays raw (flexible array).
 - New `demo/expected_members.txt` (each memory access of the toy and its member), regenerated and checked by `tests/check_toy_members.py`.
