@@ -41,6 +41,17 @@ FILE_PROMPT = "FILTER vmlinux or raw BTF|*\nThis is a kernel module: choose vmli
 NO_OWN_BTF_PROMPT = ("FILTER vmlinux, raw BTF or BTFHub archive|*\nThis kernel module was built for %s and has no BTF of its "
                      "own: choose that kernel's vmlinux or a copy of its /sys/kernel/btf/vmlinux (an old distribution "
                      "kernel without BTF: BTFHub %s.btf.tar.xz)")
+SPLIT_PROMPT = ("FILTER vmlinux or raw BTF|*\nThis kernel module was built for %s: choose that kernel's vmlinux (or a copy of "
+                "its /sys/kernel/btf/vmlinux)")  # split BTF needs that build's own base BTF: no BTFHub here
+
+
+def ask_vmlinux(prompt):
+    """ask_file for the vmlinux, the dialog's title also in the Output window (a long title can be cut off)."""
+    ida_kernwin.msg("[BTF2IDA] %s\n" % prompt.split("\n", 1)[-1].replace("%%", "%"))
+    ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
+    path = ida_kernwin.ask_file(False, None, prompt)
+    ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
+    return path
 SUFFIXES = (".isra.", ".constprop.", ".part.", ".cold", ".lto_priv")  # the compiler may have changed the ABI
 # the summary's "Look at:" line names the first of these that got a prototype (the toy demo's function, then kernel
 # functions most readers know), else the typed function with the most struct pointer parameters
@@ -182,10 +193,7 @@ def vmlinux_for_module(vmlinux, ask, force=False):
         # ask_file is printf-style in IDAPython (kernwin.i ignores only vask_file; inferred, kernwin.hpp not read):
         # escape a '%' from the file, as for ask_yn
         release = built_for.replace("%", "%%") if built_for else None
-        prompt = NO_OWN_BTF_PROMPT % (release, release) if release else FILE_PROMPT
-        ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
-        path = ida_kernwin.ask_file(False, None, prompt)
-        ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
+        path = ask_vmlinux(NO_OWN_BTF_PROMPT % (release, release) if release else FILE_PROMPT)
     if not path:
         raise B.BTFError(why + ": choose the matching vmlinux to type the kernel functions it calls.")
     blob = B.unpack_kernel_image(read_chosen(path), path)
@@ -243,9 +251,8 @@ def find_btf(vmlinux=None, ask=True, force=False):
             if not path and not ask:
                 raise B.BTFError("this is split BTF (a kernel module): give the matching vmlinux with --vmlinux.")
             if not path:
-                ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
-                path = ida_kernwin.ask_file(False, None, FILE_PROMPT)
-                ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
+                built_for = input_module_release()
+                path = ask_vmlinux(SPLIT_PROMPT % built_for.replace("%", "%%") if built_for else FILE_PROMPT)
             if not path:
                 raise B.BTFError("this is split BTF (a kernel module): it needs the matching vmlinux, and none was chosen.")
             base = B.load_base(B.unpack_kernel_image(read_chosen(path), path), path)

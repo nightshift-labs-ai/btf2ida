@@ -1005,7 +1005,10 @@ with tempfile.TemporaryDirectory() as folder:
         handle.write(base_b.blob())
     with open(elf_mod, "wb") as handle:
         handle.write(tiny_rel([b".gnu.linkonce.this_module", (b".BTF", mb.blob())]))
-    for module_file in (elf_mod, paths["mod.ko"]):
+    elf_mod_release = os.path.join(folder, "split-release.ko")
+    with open(elf_mod_release, "wb") as handle:
+        handle.write(tiny_rel([b".gnu.linkonce.this_module", (b".BTF", mb.blob()), (b".modinfo", b"vermagic=6.1.0-x SMP \0")]))
+    for module_file in (elf_mod, paths["mod.ko"], elf_mod_release):
         nalt.get_input_file_path = lambda module_file=module_file: module_file
         for ask in (False, True):
             del calls[:]
@@ -1016,6 +1019,10 @@ with tempfile.TemporaryDirectory() as folder:
             except B.BaseMismatch as error:
                 assert "does not match the chosen vmlinux (string offset out of range)" in str(error), (module_file, error)
             assert len([c for c in calls if c[0] == "ask_file"]) == (1 if ask else 0), calls
+            if ask and module_file == elf_mod_release:  # split BTF: the release, no BTFHub (review s179 MINOR 5), and the
+                prompt = [c[1] for c in calls if c[0] == "ask_file"][0]  # prompt also in the Output window (MINOR 4)
+                assert "built for 6.1.0-x" in prompt and "BTFHub" not in prompt, prompt
+                assert [c for c in calls if c[0] == "msg" and "built for 6.1.0-x" in c[1]], calls
     # Damage in the module's own BTF on the right vmlinux is not blamed on the vmlinux.
     damaged = Split(vb)
     damaged.t("bad_kind", 30, 0, 0)
