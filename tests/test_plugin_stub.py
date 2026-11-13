@@ -901,6 +901,7 @@ with tempfile.TemporaryDirectory() as folder:
     ida.inf_is_64bit = lambda: False  # 32-bit: the summary must not claim the imports were typed
     message32 = m.run_import()
     assert "no prototype was applied (32-bit" in message32 and "Typed " not in message32, message32
+    assert message32.splitlines()[0].endswith("; no prototypes (32-bit x86 database: types only)"), message32
     ida.inf_is_64bit = lambda: True
     # Its vermagic release is compared with the chosen vmlinux's "Linux version" banner.
     with open(nobtf, "wb") as handle:
@@ -911,6 +912,10 @@ with tempfile.TemporaryDirectory() as folder:
     message = m.run_import()  # raw BTF has no banner: imported, with a "Not checked" line
     kw.ask_file = ask_file
     assert "Typed 1 imported" in message and "Not checked: the module was built for 6.1.0-x" in message, message
+    # the headline counts the typed imports of a module without BTF of its own (review s179 M1)
+    assert message.splitlines()[0].startswith("BTF2IDA: ") and message.splitlines()[0].endswith(
+        "; 1 function typed with its kernel prototype (1 of them kernel functions the module calls, in its extern "
+        "segment)"), message
     # the file dialog names the release to look for (judge s178 item 5)
     assert len(asked) == 1 and "built for 6.1.0-x" in asked[0] and "BTFHub 6.1.0-x.btf.tar.xz" in asked[0], asked
     assert asked[0].startswith("FILTER ") and "%" not in asked[0].replace("%%", ""), asked

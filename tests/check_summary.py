@@ -26,11 +26,12 @@ def summary(path):
 
 def check(path, name):
     lines = summary(path)
-    head = re.fullmatch(r"BTF2IDA: ([\d,]+) types sent to IDA; ([\d,]+) functions typed with their kernel prototype",
+    head = re.fullmatch(r"BTF2IDA: (\d+) types sent to IDA; (\d+) functions? typed with (?:their|its) kernel prototype",
                         lines[0])
     assert head, "headline: %r" % lines[0]
     applied = next(line for line in lines if line.startswith("Prototypes applied to "))
-    assert int(head.group(2).replace(",", "")) == int(applied.split()[3]), (lines[0], applied)
+    imports = next((int(line.split()[1]) for line in lines if line.startswith("Typed ") and " imported " in line), 0)
+    assert int(head.group(2)) == int(applied.split()[3]) + imports, (lines[0], applied, imports)
     look = re.fullmatch(r"Look at: (\S+) at 0x([0-9A-F]+): (.+) \(press F5 there\)", lines[1])
     assert look and look.group(1) == name and name + "(" in look.group(3), "look-at line: %r" % lines[1]
     print("OK %s: %s / %s" % (os.path.basename(path), lines[0], lines[1]))

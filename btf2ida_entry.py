@@ -39,7 +39,8 @@ import ksymtab  # noqa: E402
 
 FILE_PROMPT = "FILTER vmlinux or raw BTF|*\nThis is a kernel module: choose vmlinux (or a copy of /sys/kernel/btf/vmlinux)"
 NO_OWN_BTF_PROMPT = ("FILTER vmlinux, raw BTF or BTFHub archive|*\nThis kernel module was built for %s and has no BTF of its "
-                     "own: choose that kernel's vmlinux, a copy of its /sys/kernel/btf/vmlinux, or BTFHub %s.btf.tar.xz")
+                     "own: choose that kernel's vmlinux or a copy of its /sys/kernel/btf/vmlinux (an old distribution "
+                     "kernel without BTF: BTFHub %s.btf.tar.xz)")
 SUFFIXES = (".isra.", ".constprop.", ".part.", ".cold", ".lto_priv")  # the compiler may have changed the ABI
 # the summary's "Look at:" line names the first of these that got a prototype (the toy demo's function, then kernel
 # functions most readers know), else the typed function with the most struct pointer parameters
@@ -178,9 +179,10 @@ def vmlinux_for_module(vmlinux, ask, force=False):
         raise B.BTFError(why + ": give the matching vmlinux with --vmlinux to type the kernel functions it calls.")
     if not path:
         built_for = input_module_release()
-        # whether IDAPython passes ask_file's prompt on as a printf format is not checked: a release with a '%' (none
-        # known) gets the plain prompt
-        prompt = NO_OWN_BTF_PROMPT % (built_for, built_for) if built_for and "%" not in built_for else FILE_PROMPT
+        # ask_file is printf-style in IDAPython (kernwin.i ignores only vask_file; inferred, kernwin.hpp not read):
+        # escape a '%' from the file, as for ask_yn
+        release = built_for.replace("%", "%%") if built_for else None
+        prompt = NO_OWN_BTF_PROMPT % (release, release) if release else FILE_PROMPT
         ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
         path = ida_kernwin.ask_file(False, None, prompt)
         ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
@@ -562,8 +564,15 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
     lines = ["CANCELLED: the import stopped early, so only part of what is listed below reached the database."] if cancelled else []
     if analysis_pending:
         lines.append(ANALYSIS_PENDING)
-    lines.append("BTF2IDA: {:,} types sent to IDA; {:,} functions typed with their kernel prototype".format(
-        stats["structs"] + stats["unions"] + stats["enums"] + stats["typedefs"], result["applied"]))
+    types = stats["structs"] + stats["unions"] + stats["enums"] + stats["typedefs"]
+    typed = result["applied"] + result["imports"]
+    if no_prototypes_32:
+        lines.append("BTF2IDA: %d types sent to IDA; no prototypes (32-bit x86 database: types only)" % types)
+    else:
+        lines.append("BTF2IDA: %d types sent to IDA; %d function%s typed with %s kernel prototype%s" % (
+            types, typed, "" if typed == 1 else "s", "its" if typed == 1 else "their",
+            " (%d of them kernel functions the module calls, in its extern segment)" % result["imports"]
+            if result["imports"] else ""))
     if result.get("example"):
         _, address, name, declaration = result["example"]
         if len(declaration) > 160:
