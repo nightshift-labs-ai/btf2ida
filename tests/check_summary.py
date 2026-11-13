@@ -54,6 +54,8 @@ def choice():
     assert pick((0x10, "a", "int a(void (*cb)(struct x *p, struct y *q), int n)"), (0x20, "b", "int b(struct x *p)")) == "b"
     assert pick((0x10, "a", "int a(void (*cb)(int n, struct y *q, struct z *r), int n)"), (0x20, "b", "int b(struct x *p)")) == "b"
     assert pick((0x10, "a", "int a(void (*cb)(struct x *p))"), (0x20, "b", "int b(struct x *p, int a_long_name)")) == "b"
+    # a callback that returns a struct pointer is not a struct pointer parameter (re-review s179 NIT-A)
+    assert pick((0x10, "k", "int k(struct mr_table *(*iter)(struct net *n), int x)"), (0x20, "l", "int l(struct x *p, int a_parameter_name_long_enough_to_lose_any_tie)")) == "l"
     # a struct passed by value is not a struct pointer
     assert pick((0x10, "i", "int i(struct x a, struct y b, struct z c)"), (0x20, "j", "int j(struct x *p)")) == "j"
     # the same count: the shorter declaration, then the lower address

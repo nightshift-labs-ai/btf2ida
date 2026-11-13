@@ -70,7 +70,7 @@ SUFFIXES = (".isra.", ".constprop.", ".part.", ".cold", ".lto_priv")  # the comp
 # the summary's "Look at:" line names the first of these that got a prototype (the toy demo's function, then kernel
 # functions most readers know), else the typed function with the most struct pointer parameters
 LOOK_AT = ("demo_open", "tcp_sendmsg", "do_sys_openat2", "vfs_read", "vfs_write", "commit_creds")
-STRUCT_POINTER = re.compile(r"^\s*(?:const\s+)?struct\s+\w+\s*\*")  # a parameter that is a pointer to a struct
+STRUCT_POINTER = re.compile(r"^\s*(?:const\s+)?struct\s+\w+\s*\*[\s*]*(?:const\s+)?\w*\s*$")  # a struct pointer parameter
 
 
 def parse_batch(text):
