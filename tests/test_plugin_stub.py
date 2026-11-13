@@ -923,6 +923,26 @@ with tempfile.TemporaryDirectory() as folder:
     # the file dialog names the release to look for (judge s178 item 5)
     assert len(asked) == 1 and "built for 6.1.0-x" in asked[0] and "BTFHub 6.1.0-x.btf.tar.xz" in asked[0], asked
     assert asked[0].startswith("FILTER ") and "%" not in asked[0].replace("%%", ""), asked
+    # a '%' in the release: escaped in the printf-style prompt, plain in the Output window; the wait box is hidden
+    # while the dialog is open (re-review s179 MINOR-B)
+    with open(nobtf, "wb") as handle:
+        handle.write(tiny_rel([b".gnu.linkonce.this_module", (b".modinfo", b"license=GPL\0vermagic=6.1%s-x SMP \0")]))
+    order, hide, show, ask_file = [], kw.hide_wait_box, kw.show_wait_box, kw.ask_file
+    kw.hide_wait_box = lambda: order.append(("hide",))
+    kw.show_wait_box = lambda text: order.append(("show",))
+    kw.ask_file = lambda save, default, prompt: order.append(("ask_file", prompt)) or paths["vmlinux.btf"]
+    del calls[:]
+    try:
+        m.run_import()
+    finally:
+        kw.hide_wait_box, kw.show_wait_box, kw.ask_file = hide, show, ask_file
+    at = [i for i, c in enumerate(order) if c[0] == "ask_file"]
+    assert len(at) == 1 and order[at[0] - 1] == ("hide",) and order[at[0] + 1] == ("show",), order
+    assert "built for 6.1%%s-x" in order[at[0]][1] and "BTFHub 6.1%%s-x.btf.tar.xz" in order[at[0]][1], order
+    shown = [c[1] for c in calls if c[0] == "msg" and "built for 6.1" in c[1]]
+    assert len(shown) == 1 and "built for 6.1%s-x" in shown[0] and "%%" not in shown[0], shown
+    with open(nobtf, "wb") as handle:
+        handle.write(tiny_rel([b".gnu.linkonce.this_module", (b".modinfo", b"license=GPL\0vermagic=6.1.0-x SMP mod_unload \0")]))
     with open(paths["vmlinux.btf"], "rb") as handle:
         raw_vmlinux = handle.read()
     for release, refused in (("6.1.0-x", False), ("6.17.0-41-generic", True)):
