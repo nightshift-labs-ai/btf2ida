@@ -1,0 +1,22 @@
+# Which struct member each memory access of the toy's demo_* functions touches, in btf2ida's layout.
+# Written by tests/check_toy_members.py from `objdump -d -M intel` of demo/toy_kernel.elf and the toy's BTF;
+# derived offline, not IDA output. After the import the decompiler should show these names instead of offsets.
+# Bit numbers count from the accessed address. The flexible array `payload` is only a comment in the header,
+# so its loop in demo_checksum stays a raw offset.
+#
+# function  address  instruction  ->  member
+demo_open      0x112d  mov DWORD PTR [rdi+0xc],0x5          ->  dev->state
+demo_open      0x113a  movzx esi,BYTE PTR [rdi+0x8]         ->  dev->ready (bit 0), dev->mode (bits 1-3), dev->refs (bits 4-15); then `and 0xfffffff1` clears mode
+demo_open      0x1143  mov BYTE PTR [rdi+0x8],sil           ->  dev->mode (the field the mask cleared)
+demo_open      0x1147  movzx edx,WORD PTR [rdi+0x8]         ->  dev->ready (bit 0), dev->mode (bits 1-3), dev->refs (bits 4-15); then `shr 0x4` reads refs; then `and 0xf` clears refs
+demo_open      0x115c  mov WORD PTR [rdi+0x8],dx            ->  dev->refs (the field the mask cleared)
+demo_close     0x1168  mov DWORD PTR [rdi+0xc],0x6          ->  dev->state
+demo_checksum  0x1174  movsx rdx,WORD PTR [rdi+0x18]        ->  dev->x
+demo_checksum  0x1179  add rdx,QWORD PTR [rdi]              ->  dev->id
+demo_checksum  0x117c  movsx rax,WORD PTR [rdi+0x1a]        ->  dev->y
+demo_checksum  0x1184  movsxd rax,DWORD PTR [rdi+0x28]      ->  dev->private_
+demo_checksum  0x1190  lea rax,[rdi+0x2c]                   ->  &dev->payload (no size: a comment in the header)
+demo_checksum  0x1194  lea rsi,[rdi+rsi*1+0x2c]             ->  &dev->payload (no size: a comment in the header) + index
+demo_checksum  0x1199  movzx ecx,BYTE PTR [rax]             ->  dev->payload[...] (through a pointer into it, raw bytes)
+demo_dispatch  0x11b4  mov rax,QWORD PTR [rdi+0x20]         ->  dev->ops
+demo_dispatch  0x11b8  call QWORD PTR [rax]                 ->  dev->ops->open

@@ -5,4 +5,5 @@ cd "$(dirname "$0")"
 gcc -O1 -gbtf -fno-inline -o toy_kernel.elf toy_kernel.c
 python3 ../btf2c.py toy_kernel.elf expected_types.h --prototypes expected_prototypes.txt
 gcc -fsyntax-only -include stdbool.h -x c expected_types.h
+python3 ../tests/check_toy_members.py --write    # needs objdump (binutils)
 echo "demo rebuilt; header compiles"
