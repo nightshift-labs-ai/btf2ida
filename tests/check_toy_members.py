@@ -259,8 +259,10 @@ def readme_quotes():
     with open(SOURCE) as handle:
         source = handle.read().splitlines()
     problems, found = [], 0
-    for path in [README] + sorted(os.path.join(ROOT, "docs", n) for n in os.listdir(os.path.join(ROOT, "docs"))
-                                  if n.endswith(".md")) if os.path.isdir(os.path.join(ROOT, "docs")) else [README]:
+    docs = os.path.join(ROOT, "docs")
+    paths = [README] + (sorted(os.path.join(docs, n) for n in os.listdir(docs) if n.endswith(".md"))
+                        if os.path.isdir(docs) else [])
+    for path in paths:
         with open(path) as handle:
             lines = handle.read().splitlines()
         for i, line in enumerate(lines):

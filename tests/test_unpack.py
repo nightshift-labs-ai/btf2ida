@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compressed kernel files chosen as the vmlinux (btf.unpack_kernel_image), on synthetic bzImages.
 
-Real files checked by hand (README): Debian 11 5.10 (xz bzImage), Debian 13 6.12 (zstd bzImage), Ubuntu 24.04 arm64
+Real files checked by hand (docs/VERIFICATION.md): Debian 11 5.10 (xz bzImage), Debian 13 6.12 (zstd bzImage), Ubuntu 24.04 arm64
 6.8 (gzip Image).
 """
 import bz2

@@ -4,8 +4,8 @@
     python3 tests/coverage.py kernel.elf
 
 Counts the FUNC symbols whose name has no compiler suffix ('.isra', '.cold', ...), no __pfx_ padding
-prefix and is not one of MemLens' planted memlens_target_* hooks, and how many of those names have a
-prototype in the file's own BTF. On the MemLens demo kernel.elf (SHA-256 79a64158...) it prints
+prefix and is not one of the memlens_target_* labels MemLens adds for copied hook pages, and how many
+of those names have a prototype in the file's own BTF. On the MemLens demo kernel.elf (SHA-256 79a64158...) it prints
 50,366 prototypes and 46,900 of 51,092 (91.8%).
 """
 import os
