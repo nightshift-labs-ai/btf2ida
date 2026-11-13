@@ -4,12 +4,12 @@ Taken from the GitHub release notes. Newest first.
 
 ## Unreleased
 
-- README rewritten as a front door: 1,270 words (was 4,415), 148 before "Try it" (was 457), no line over 80 words, "not yet run in real IDA" once, in the Status line. The details moved, unchanged, to `docs/KERNELS.md`, `docs/LIMITATIONS.md`, `docs/VERIFICATION.md`, `docs/USAGE.md` and `docs/HOW_IT_WORKS.md`; every number of the old README is in the new one or in docs/. The dated plugin-index anecdote is gone.
-- Toy: the README now says to press F5 in `demo_open` and `demo_checksum` before and after the import, quotes the source lines the pseudocode should match (`demo/toy_kernel.c:33-35`, `47-49`), says the `payload[i]` loop stays a raw offset (flexible array), and gives the plugin folder per OS and a direct download link.
-- New `demo/expected_members.txt`: each memory access of the toy's demo functions and the member it touches (`dev->state`, `dev->mode`, `dev->refs`, `dev->x`, ...), derived from `objdump -d` and btf2c's layout. `tests/check_toy_members.py` regenerates it (exit 1 on drift) and checks the README's quotes of `demo/toy_kernel.c`; `demo/build.sh` rewrites it.
-- `docs/KERNELS.md`: vmlinux-to-elf recipe for a distribution vmlinux and an Android GKI `boot.img`/`Image` (until now "types only" or "exported functions only"). Measured outside IDA with vmlinux-to-elf 1.4.0: GKI arm64 6.1 / 6.6 / 6.12, 98.6% / 97.9% / 93.7% of function symbols with a prototype; Ubuntu mainline 7.0 stripped vmlinux, 68,830 of 95,537 (72.0%), 68,698 applied on the fake database against 13,840 from `__ksymtab` alone, names agreeing with `__ksymtab` on 14,690 of 14,690 exported code addresses.
-- New `tests/check_docs.py`: every relative link and #anchor in README and docs/ resolves, and the README keeps its shape.
-- Logo: 418x418, 109 KB (was 1.3 MB), now also shown in the README.
+- README rewritten as a front door: 1,270 words (was 4,415), 148 before "Try it" (was 457); the details moved, unchanged, to `docs/` (KERNELS, LIMITATIONS, VERIFICATION, USAGE, HOW_IT_WORKS).
+- Toy: press F5 before and after; the README quotes the source lines the pseudocode should match and says the `payload[i]` loop stays raw (flexible array).
+- New `demo/expected_members.txt` (each memory access of the toy and its member), regenerated and checked by `tests/check_toy_members.py`.
+- `docs/KERNELS.md`: vmlinux-to-elf recipe for Android GKI and distribution kernels, measured: GKI 6.1 / 6.6 / 6.12 98.6% / 97.9% / 93.7%; Ubuntu mainline 7.0 68,698 prototypes applied (13,840 from `__ksymtab` alone).
+- New `tests/check_docs.py`: relative links and anchors in README and docs/.
+- Logo: 109 KB (was 1.3 MB), shown in the README.
 
 ## v0.1.22 (2026-11-15)
 
