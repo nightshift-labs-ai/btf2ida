@@ -4,7 +4,7 @@ Taken from the GitHub release notes. Newest first.
 
 ## Unreleased
 
-- README rewritten as a front door: 1,270 words (was 4,415), 148 before "Try it" (was 457); the details moved, unchanged, to `docs/` (KERNELS, LIMITATIONS, VERIFICATION, USAGE, HOW_IT_WORKS).
+- README rewritten as a front door: 1,270 words (was 4,415), 148 before "Try it" (was 457); the details moved to `docs/` (KERNELS, LIMITATIONS, VERIFICATION, USAGE, HOW_IT_WORKS).
 - Toy: press F5 before and after; the README quotes the source lines the pseudocode should match and says the `payload[i]` loop stays raw (flexible array).
 - New `demo/expected_members.txt` (each memory access of the toy and its member), regenerated and checked by `tests/check_toy_members.py`.
 - `docs/KERNELS.md`: vmlinux-to-elf recipe for Android GKI and distribution kernels, measured: GKI 6.1 / 6.6 / 6.12 98.6% / 97.9% / 93.7%; Ubuntu mainline 7.0 68,698 prototypes applied (13,840 from `__ksymtab` alone).
