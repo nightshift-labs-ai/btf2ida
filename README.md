@@ -41,11 +41,11 @@ hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/t
    The `payload[i]` loop stays a raw offset: `payload` is a flexible array, which btf2ida declares only as a comment ([Known limitations](#known-limitations)).
 5. Local Types should hold `struct demo_device` as in `demo/expected_types.h`: `ready`, `mode` and `refs` as `unsigned short` bitfields (IDA may show them as `unsigned __int16`).
 
-[`demo/expected_members.txt`](demo/expected_members.txt) lists every memory access of these functions with the member it touches, derived offline from `objdump -d` and btf2ida's layout (`tests/check_toy_members.py`).
+[`demo/expected_members.txt`](demo/expected_members.txt) lists every memory access of the toy's `demo_*` functions with the member it touches, derived offline from `objdump -d` and btf2ida's layout (`tests/check_toy_members.py`).
 
 ### A real kernel, ready with symbols and BTF
 
-Download `memlens-demo-debian13.zip` (22 MB) from the [MemLens demo-data release](https://github.com/nightshift-labs-ai/memlens/releases/tag/demo-data), from our companion plugin that exports a running kernel from a memory image.
+Download `memlens-demo-debian13.zip` (22 MB) from the [MemLens demo-data release](https://github.com/nightshift-labs-ai/memlens/releases/tag/demo-data) (MemLens is our companion plugin that exports a running kernel from a memory image).
 
 1. Unzip it and open `kernel.elf` in IDA; let auto-analysis finish (a whole kernel takes a while).
 2. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**.
@@ -114,7 +114,7 @@ The parsing and the generated types are checked against independent ground truth
 
 ## Credits
 
-Author: Nightshift Labs (built by an AI agent, Claude, operated by Nightshift Labs). Please list the authors as "Nightshift Labs". Thanks to the Linux BTF authors and to the Volatility project (dwarf2json), used for the ground-truth check.
+Author: Nightshift Labs (built by an AI agent, Claude). Please list the authors as "Nightshift Labs". Thanks to the Linux BTF authors and to the Volatility project (dwarf2json), used for the ground-truth check.
 
 ## Licence
 
