@@ -1,38 +1,53 @@
 # btf2ida
 
-Open a Linux kernel in IDA and get its **real types and function prototypes** with one click, with no debug package and no matching source tree.
+<img src="assets/logo.png" alt="btf2ida logo" width="140" align="right">
 
-*Status: not yet run in real IDA; what was checked offline is under [Verification](#verification).*
+Open a Linux kernel in IDA and get its **real types and function prototypes** with one click, from the kernel's own BTF: no debug package, no matching source tree.
 
-Most current distribution and Android GKI kernels carry [BTF](https://docs.kernel.org/bpf/btf.html) (BPF Type Format, built in with `CONFIG_DEBUG_INFO_BTF`), a compact description of every kernel struct, union, enum and function signature. Many embedded and older vendor kernels do not. Where it exists, it is there in a stripped `vmlinux`, in Android GKI kernels, and in RAM. btf2ida finds it and applies it:
+*Status: not yet run in real IDA; checked offline against real kernels ([Verification](docs/VERIFICATION.md)).*
 
-- **Every kernel type**: all structs, unions, enums and typedefs imported as IDA local types, every member at its exact byte offset (packed and anonymous members included). Bitfields become C bitfields: each group of adjacent bitfields is cut, at byte boundaries that no bitfield crosses, into integers of 1, 2, 4 or 8 bytes (`unsigned short ready:1; unsigned short mode:3; unsigned short refs:12;`, unused bits as named fillers; a plain integer type, so enum constants, `_Bool` and typedef names are not kept, see Known limitations): 2,222 of the 2,239 bitfields in the MemLens demo kernel.elf. The rest (17 there, in 3 runs of 3 bytes that a bitfield crosses) stay raw storage bytes with their names in a comment, and zero-length trailing arrays appear only as comments, so those members are not separately visible in IDA. Enums that are 1 byte wide or 64-bit (ENUM64; a few dozen per kernel) become plain unsigned integers of that size, without their constants.
-- **Function prototypes by name**: each function in the database whose name has a BTF signature gets that signature (except the `void f(void)` BTF gives assembly functions, see Known limitations), so the decompiler shows `struct sock *sk` instead of `__int64 a1`. On a stripped kernel, exported functions are first named from `__ksymtab`. In a kernel module, the plugin also applies prototypes to the kernel functions the module imports ([A real kernel module](#a-real-kernel-module)).
-- **Finds BTF on its own**: from the input file (`vmlinux`, a kernel module `.ko`, raw BTF, a memory image, by carving) or from the loaded segments. For a kernel module it asks for the matching `vmlinux` to resolve split BTF. Raw BTF or a raw memory image gives types only: prototypes need function names in the database.
+- **Every kernel type**: structs, unions, enums and typedefs as IDA local types, each member at its exact offset.
+- **Prototypes by name**, including the kernel functions a module imports.
+- **Finds the BTF itself** in a `vmlinux`, a `.ko`, a memory image or a BTFHub file.
 
-It adds nothing to your binary and needs nothing installed besides the plugin.
-
-## Why it matters
-
-A Linux kernel without its debug package is mostly `__int64 a1`, and matching headers or a debug package are often impossible to get: vendor kernels, Android devices, a kernel seen only in a memory image. The BTF is already inside the image. Using it replaces retyping structures by hand.
+**What changes**, on the bundled toy: `demo_open` gets `int demo_open(struct demo_device *dev, unsigned int flags)`, and its stores to `[rdi+0xc]` and the word at `[rdi+0x8]` become `dev->state`, `dev->mode` and `dev->refs` ([every access](demo/expected_members.txt)). In a real module, the import `nla_put` gets `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`.
 
 ## Try it
 
-Install the current release (the plugin index can lag a day or more behind; see [Install](#install)):
+Install the current release:
 
 ```
 hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/tags/v0.1.22.zip
 ```
 
-Smallest try, nothing to download: `demo/toy_kernel.elf` (17 KB) is a small program with kernel-style types, built with `gcc -gbtf`, so it carries BTF and no DWARF and IDA has no other source for these types (`demo/build.sh` rebuilds it).
+### The toy: nothing to download
 
-1. Open `demo/toy_kernel.elf` in IDA (after `hcli plugin install`, it is in the plugin's folder: `$IDAUSR/plugins/btf2ida/demo/`).
+`demo/toy_kernel.elf` (17 KB) is a small program with kernel-style types, built with `gcc -gbtf`, so it carries BTF and no DWARF and IDA has no other source for these types (`demo/build.sh` rebuilds it). After `hcli plugin install` it is in `plugins/btf2ida/demo/` under your IDA user folder: `$IDAUSR` if set, otherwise `~/.idapro` (Linux, macOS) or `%APPDATA%\Hex-Rays\IDA Pro` (Windows); both are hidden folders. Or download it directly: [toy_kernel.elf](https://github.com/nightshift-labs-ai/btf2ida/raw/main/demo/toy_kernel.elf).
+
+1. Open `toy_kernel.elf` in IDA and press **F5** in `demo_open` and `demo_checksum`. With no types, the decompiler can only show their accesses to `dev` as offsets.
 2. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**.
-3. `demo_open` should become `int demo_open(struct demo_device *dev, unsigned int flags)` (all five prototypes are in `demo/expected_prototypes.txt`), and Local Types should hold `struct demo_device` as in `demo/expected_types.h`: `ready`, `mode` and `refs` as `unsigned short` bitfields (not yet observed in IDA, which may show them as `unsigned __int16`; see Known limitations), `private` renamed `private_`, the flexible array as a comment.
+3. Press **F5** in `demo_open` again. It should be `int demo_open(struct demo_device *dev, unsigned int flags)` (all five prototypes are in `demo/expected_prototypes.txt`), with a body that reads like its source, `demo/toy_kernel.c:33-35`:
+   ```c
+   dev->state = DEMO_RUNNING;
+   dev->mode = flags & 7;
+   return dev->refs++;
+   ```
+4. In `demo_checksum`, the sum should read `dev->id`, `dev->x`, `dev->y` and `dev->private_` (`private` is renamed: it is a C++ keyword, which IDA's parser may refuse), as in `demo/toy_kernel.c:47-49`:
+   ```c
+   long sum = (long)dev->id + dev->x + dev->y + dev->private;
+   for (size_t i = 0; i < len; i++)
+   	sum += dev->payload[i];
+   ```
+   The `payload[i]` loop stays a raw offset: `payload` is a flexible array, which btf2ida declares only as a comment ([Known limitations](#known-limitations)).
+5. Local Types should hold `struct demo_device` as in `demo/expected_types.h`: `ready`, `mode` and `refs` as `unsigned short` bitfields (IDA may show them as `unsigned __int16`).
 
-A real kernel, ready with symbols and BTF: Download `memlens-demo-debian13.zip` (22 MB) from the [MemLens demo-data release](https://github.com/nightshift-labs-ai/memlens/releases/tag/demo-data), our companion plugin that exports a running kernel from a memory image.
+[`demo/expected_members.txt`](demo/expected_members.txt) lists every memory access of these functions with the member it touches, derived offline from `objdump -d` and btf2ida's layout (`tests/check_toy_members.py`).
 
-1. Unzip it and open `kernel.elf` in IDA; let auto-analysis finish (a whole kernel takes a while; not timed in IDA).
+### A real kernel, ready with symbols and BTF
+
+Download `memlens-demo-debian13.zip` (22 MB) from the [MemLens demo-data release](https://github.com/nightshift-labs-ai/memlens/releases/tag/demo-data), from our companion plugin that exports a running kernel from a memory image.
+
+1. Unzip it and open `kernel.elf` in IDA; let auto-analysis finish (a whole kernel takes a while).
 2. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**.
 3. Open `tcp_sendmsg` or `vfs_getattr`. Their prototypes in this kernel's BTF, as btf2ida generates them (`python3 btf2c.py kernel.elf types.h --prototypes protos.txt`, run outside IDA):
 
@@ -41,27 +56,23 @@ int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size);
 int vfs_getattr(const struct path *path, struct kstat *stat, u32 request_mask, unsigned int query_flags);
 ```
 
-Outside IDA on this file: BTF found by carving in 0.3 s, 50,366 prototypes, matching 46,900 of the 51,092 kernel function symbols that have no module prefix, compiler suffix or `__pfx_` padding prefix (91.8%; demo kernel.elf SHA-256 79a64158…, the MemLens 0.3.23 export; leaving out its 3 planted `memlens_target_*` hooks; `python3 tests/coverage.py kernel.elf` re-counts it).
+46,900 of its 51,092 function symbols (91.8%; compiler clones and padding symbols not counted) have a prototype to apply (`python3 tests/coverage.py kernel.elf`; [details](docs/KERNELS.md#a-kernel-with-its-symbols)).
 
-Your own kernel: on x86-64, the `vmlinux` inside a distribution's `vmlinuz` (for example from `scripts/extract-vmlinux`) is an ELF with its symbol table stripped. btf2ida then names the **exported** functions from the kernel's own `__ksymtab` (only where the database has no name, never over yours) and applies their prototypes; the other functions get no prototype. Measured outside IDA on `objcopy -S` copies of two distribution kernels: Debian 13 6.12, 10,497 exported functions named, all at the same address as in the debug symbol table, 10,333 with a prototype (`tcp_sendmsg` and `vfs_getattr` among them); Ubuntu 26.04 7.0, 14,717 named, 13,865 with a prototype. An arm64 or Android kernel usually comes as a raw `Image`, which gets types only. For every function, give IDA a kernel ELF with all its symbols, for example one rebuilt from kallsyms by [vmlinux-to-elf](https://github.com/marin-m/vmlinux-to-elf) (not tried here on a distribution `vmlinuz`). A kernel built without BTF (older distribution kernels such as Ubuntu 20.04's 5.8): btf2ida asks for a BTF file of the same build, for example `<release>.btf.tar.xz` from [BTFHub](https://github.com/aquasecurity/btfhub-archive) (headless: `--vmlinux <file>`); the summary warns when the release in the kernel's banner differs from the file's banner or BTFHub name, so pick the exact release.
+### Your own kernel
 
-## Status: read this first
+| What you have | Do this first | Functions with a prototype (measured outside IDA) |
+|---|---|---|
+| A kernel with symbols | nothing | MemLens demo: 91.8% |
+| A distribution `vmlinuz` (x86-64) | `extract-vmlinux`, then `vmlinux-to-elf vmlinux kernel.elf` | Ubuntu mainline 7.0: 72.0% (68,698) |
+| Android GKI `boot.img` or raw `Image` | `vmlinux-to-elf Image kernel.elf` ([recipe](docs/KERNELS.md#android-gki-and-other-raw-images)) | GKI 6.1 / 6.6 / 6.12: 98.6% / 97.9% / 93.7% |
+| A kernel module `.ko` | choose its kernel's `vmlinux` when asked | `nf_tables.ko`: 488 own, 150 imports |
+| A kernel without BTF | choose a [BTFHub](https://github.com/aquasecurity/btfhub-archive) file when asked | as for its kind above |
 
-**btf2ida has not yet been run inside real IDA.** It was built without an IDA installation. What was checked, and how, is listed under [Verification](#verification): the parsing and the generated types are checked against independent ground truth, while the IDA calls are only checked to exist in the official SDK and run against stubs. If you try it in IDA and something is off, please open an issue.
+[vmlinux-to-elf](https://github.com/marin-m/vmlinux-to-elf) (`pipx install vmlinux-to-elf`) restores the function names a stripped or raw kernel keeps for kallsyms. Without it, a stripped `vmlinux` gets prototypes only for its exported functions, which btf2ida names from `__ksymtab` (13,840 on that Ubuntu kernel), and a raw `Image` gets types only. Recipes, downloads and all measurements: [docs/KERNELS.md](docs/KERNELS.md).
 
-Known limitations (the summary says so when one of the 32-bit x86, empty-struct, compiler-clone, assembly `void f(void)`, no-BTF-module or distilled-base cases applies):
+## Why it matters
 
-- **32-bit x86 databases** get types only, no prototypes: 32-bit x86 kernels pass arguments in registers (regparm), which a plain C prototype would misstate. Other 32-bit databases (ARM, MIPS, RISC-V: IDA's processor is not `metapc`) get prototypes too; not tried on a real 32-bit kernel.
-- **No function names, no prototypes**: a raw arm64 `Image`, raw BTF or a raw memory image gets types only.
-- **Layout details IDA does not get as types**: bitfields in a run of other than 1, 2, 4 or 8 bytes that a bitfield crosses (17 of 2,239 in the MemLens demo kernel.elf, in runs of 3 bytes; 7 bytes in some kernels) are raw storage bytes with their names in a comment, zero-length trailing arrays are comments, and 1-byte or 64-bit enums are plain unsigned integers without their constants. A bitfield written as a C bitfield gets a plain signed or unsigned integer of its run's size, not its declared type (the toy's `unsigned int ready:1` becomes `unsigned short ready:1`): an enum bitfield loses its constants, and `_Bool` and typedef names such as `u8` or `u32` are not kept (of the 2,222 in the MemLens demo kernel.elf: 18 enums, 105 `_Bool`, 1,400 others declared with a typedef, 482 with a plain integer type of another size).
-- **Bitfields checked with gcc only**: the layout of the C bitfields was checked by compiling and running the header with gcc, under its own rules and under `-mms-bitfields` (gcc's implementation of the Microsoft rules; MSVC itself was not run), see [Verification](#verification). Each integer is filled exactly, so both rules give the same layout; how IDA lays them out has not been observed. After the import, the plugin reads back from IDA the layout of every struct and union with bitfields (its size, each C bitfield's bit offset and width, the offsets of its direct members) and compares it with the BTF; one that differs is declared again with raw bytes and checked again, and the summary says how many (checked with fake IDA modules only). A struct or union whose declaration with C bitfields IDA rejects is offered again with raw bytes, and the summary says how many (also checked with fake IDA modules only). Big-endian BTF keeps all bitfields as raw bytes, and so does a big-endian database, where IDA allocates bitfields from the most significant bit (the summary says so; checked with fake IDA modules only).
-- **Empty structs and unions** (size 0 in BTF) get a forward declaration only; the summary counts them apart.
-- **Compiler clones** (`.isra`, `.constprop`, `.part`, `.cold`) are left untyped, because their calling convention may differ.
-- **Assembly functions** (`memcpy`, `__arch_copy_to_user`, `__get_user_N`, ...): BTF records them as `void f(void)`, which would hide their arguments. btf2ida leaves that prototype out for 228 known x86-64 and arm64 assembly names, and for any name whose type in IDA (at the address, or in IDA's type libraries) lists parameters, and counts both in the summary. An assembly function not on the list still gets `void f(void)`.
-- **A kernel module without BTF of its own**: only the kernel functions it calls are typed (see [A real kernel module](#a-real-kernel-module)).
-- **Out-of-tree modules with a distilled `.BTF.base`** (pahole's `distilled_base`, which `scripts/Makefile.btf` requests for external modules since Linux 6.11): the module's own types and prototypes are imported from its own BTF, without a vmlinux; the kernel structs it uses are known there only by name and size, so they get a forward declaration only (a module struct that holds one by value gets a byte array of that size, the type named in a comment); the kernel functions it calls are not typed. Checked only on a synthetic module (a stub-test case and a hand-made `.ko`).
-
-btf2ida was built by an AI agent (Claude, operated by Nightshift Labs).
+A Linux kernel without its debug package is mostly `__int64 a1`, and matching headers or a debug package are often impossible to get: vendor kernels, Android devices, a kernel seen only in a memory image. The BTF is already inside the image. Using it replaces retyping structures by hand. It adds nothing to your binary and needs nothing installed besides the plugin.
 
 ## Install
 
@@ -69,137 +80,41 @@ btf2ida was built by an AI agent (Claude, operated by Nightshift Labs).
 hcli plugin install btf2ida
 ```
 
-Or copy this folder into your IDA `plugins` directory. IDA 9.0 or later. The plugin index can lag a day or more behind the [GitHub releases](https://github.com/nightshift-labs-ai/btf2ida/releases) (on Nov 12, 2026 it offered 0.1.17 while 0.1.19 was out); if `hcli plugin status` shows an older version, install the release zip by URL as in [Try it](#try-it), or copy the folder from the latest release. The offline checks below used x86-64 kernels, plus two arm64 kernels where a row says so.
+Or copy this folder into your IDA `plugins` directory. IDA 9.0 or later. The plugin index can lag a day or more behind the [GitHub releases](https://github.com/nightshift-labs-ai/btf2ida/releases); if `hcli plugin status` shows an older version, install the release zip by URL as in [Try it](#try-it).
 
 ## Usage
 
-Open a kernel or kernel module in IDA, then **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**. If IDA is still analysing the file (and auto-analysis is not turned off), btf2ida first asks whether to wait for the analysis to finish (functions IDA has not created yet would get no prototype). A summary says how many types IDA accepted and how many prototypes were applied.
+Open a kernel or kernel module, then **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**. If IDA is still analysing, btf2ida first offers to wait. A summary says how many types IDA accepted and how many prototypes were applied.
 
-**Edit > Plugins > BTF2IDA: Apply kernel types and prototypes (bitfields as raw bytes)** runs the same import but keeps every bitfield as raw storage bytes with its name in a comment, the form before C bitfields, for a database where IDA lays out the C bitfields differently from the BTF. A struct that still has C bitfields from an earlier import is then declared again with raw bytes (see "Bitfields checked with gcc only" under Known limitations).
+- **BTF2IDA: Apply kernel types and prototypes (bitfields as raw bytes)** does the same with every bitfield as raw bytes.
+- Headless with idalib: `python3 tools/btf2ida_headless.py vmlinux` (a module: `nf_tables.ko --vmlinux vmlinux`).
+- Without IDA, as a C header generator: `python3 btf2c.py /sys/kernel/btf/vmlinux vmlinux_types.h`.
 
-Functions the compiler rewrote (`.isra`, `.constprop`, `.part`, `.cold`) are left untyped on purpose: their calling convention may differ from the source signature.
+All options: [docs/USAGE.md](docs/USAGE.md).
 
-**Does my kernel have BTF?** On a running system: `ls /sys/kernel/btf/vmlinux`. For a kernel file: `readelf -S vmlinux | grep BTF`. A memory export has no `.BTF` section, but the data is still in it; the plugin finds it by its header and checks it. Without IDA, `python3 btf2c.py <file> /dev/null` prints the type counts, or `btf2c: no BTF found`. Every kernel we tried has it (Debian 13, Ubuntu 26.04, WSL2, Android GKI 6.1).
+## Known limitations
 
-Without IDA, as a generator of a C header for the same types:
+- **32-bit x86 databases** get types only, no prototypes (regparm calling convention).
+- **No function names, no prototypes**: raw BTF, a raw memory image or a raw `Image` gets types only.
+- **Some layout details are not types**: flexible arrays are comments; a few bitfields (17 of 2,239 in the MemLens demo) stay raw bytes; bitfields lose their declared type (enum, `_Bool`, typedef); 1-byte and 64-bit enums lose their constants.
+- **Bitfield layout checked with gcc only**; the plugin reads IDA's layout back and falls back to raw bytes where it differs.
+- **Compiler clones** (`.isra`, `.constprop`, `.part`, `.cold`) are left untyped; empty structs get a forward declaration only.
+- **Assembly functions** recorded in BTF as `void f(void)` are skipped for 228 known names; others still get it.
+- **Modules without BTF** get their imports typed, not their own functions; modules with a distilled `.BTF.base` get their own, not their imports.
 
-```
-python3 btf2c.py /sys/kernel/btf/vmlinux vmlinux_types.h
-```
-
-`--no-bitfields` writes every bitfield as raw storage bytes with its name in a comment, the form before C bitfields.
-
-Headless, with idalib (IDA 9.0 or newer; set up the `idapro` module as Hex-Rays describes):
-
-```
-python3 tools/btf2ida_headless.py vmlinux
-python3 tools/btf2ida_headless.py nf_tables.ko --vmlinux vmlinux
-```
-
-It opens the file as a database, runs the same import as the menu action, prints the same summary and saves the database. A module's split BTF needs `--vmlinux` (the menu action asks for it instead). `--no-bitfields` keeps every bitfield as raw storage bytes with its name in a comment instead of C bitfields. It calls the plugin's own code; like the rest of the IDA layer it has only been run against fake modules (`tests/test_plugin_stub.py`), not a real idalib.
-
-## A real kernel module
-
-*Measured outside IDA, with fake IDA modules standing in for IDA. Not yet run in IDA.*
-
-A module's BTF is split: its own functions are in the module, while the kernel functions it calls are in vmlinux's BTF. btf2ida applies the module's own prototypes by name, as for a whole kernel. It applies vmlinux prototypes only to names in an extern segment (`SEG_XTRN`), where the module's imports should be. "Not in this database" counts only the module's own functions.
-
-Debian 13 `nf_tables.ko` (6.12.115+deb13.1-cloud-amd64), with that kernel's vmlinux as the base. To re-run it, see [Try a real module](#try-a-real-module) below (`tests/check_module.py`; `--no-names` for the first row):
-
-| Fake database | v0.1.14 | v0.1.15 to v0.1.20 |
-|---|---|---|
-| No names (every lookup fails) | not in this database: 48,395 | not in this database: 495 (the module's own functions) |
-| Names from the module's symbol table: its 193 undefined symbols in an extern segment, its 1,042 text symbols as functions | 489 functions typed, 0 imports; not in this database: 47,752 | 488 module functions and 154 imports typed (for example `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`); not in this database: 7 |
-
-- The 7 have BTF but no symbol in the module.
-- Since v0.1.21, 150 of the 154: four (`__fentry__`, `memcpy`, `memmove`, `memset`) are assembly functions, which BTF records as `void f(void)`; they are left as IDA has them (the "Not applied: 4" line below).
-- The other 39 imports have no function BTF in vmlinux. Examples: data (`jiffies`), thunks (`__x86_indirect_thunk_rax`), functions of another module (`nfnetlink_*`), and `memcmp`.
-- One function typed before is now left alone: the module's own `jhash`, whose BTF is only in vmlinux's part. A vmlinux name outside the extern segment is not trusted to be the same function.
-
-**A module with no BTF of its own.** Distribution out-of-tree modules are often built without BTF, because their build has no vmlinux (for example Ubuntu's `usbio.ko` and `intel_cvs.ko` have no `.BTF` section). For such a module (an ELF relocatable file with a `.gnu.linkonce.this_module` section and no BTF), btf2ida asks for the matching vmlinux (headless: `--vmlinux`) and types only the kernel functions the module calls, in its extern segment, from the vmlinux BTF. The module's own functions get no prototype, and the summary says so. With no split BTF to check against, it compares the module's `vermagic` release with the vmlinux's `Linux version` banner (in a memory image, any of its banners) and refuses a different kernel (for example Ubuntu's 6.17 `intel_cvs.ko` with the Debian 6.12 vmlinux: "this kernel module was built for 6.17.0-41-generic, but the chosen vmlinux is 6.12.115+deb13.1-cloud-amd64") unless you choose to use it anyway: the menu action asks (default No), headless takes `--force`, and the summary then has a line "Used anyway (your choice)" that names both releases (that same pair with `tests/check_module.py ... --force`: 40 of the 56 imports typed). A raw BTF file has no banner, and then the summary says the match was not checked. A module that has its own split BTF is never "used anyway": it is refused when the chosen vmlinux does not fit its string and type references (for example Ubuntu 26.04's 7.0 `nf_tables.ko` with the Debian 13 6.12 vmlinux: "this module's BTF does not match the chosen vmlinux (string offset out of range)"; before, that pair fell through to the whole-kernel file dialog). Measured with the same fake database as above on Debian 13 `nf_tables.ko` with its `.BTF` section removed (`objcopy --remove-section .BTF`): 150 imports typed, the same 150 as with its BTF (`nla_put` identical), 0 own functions typed. This path has only been run against fake IDA modules.
-
-Not checked in IDA:
-
-- whether IDA puts a module's imports in a `SEG_XTRN` segment under their plain names;
-- whether IDA accepts a prototype there.
-
-### Try a real module
-
-A module opens in IDA in seconds, so it is the quickest try on real kernel code. Debian 13's cloud kernel package (35 MB) holds both the module and its kernel:
-
-```
-curl -LO https://deb.debian.org/debian/pool/main/l/linux-signed-amd64/linux-image-6.12.115+deb13.1-cloud-amd64_6.12.115-2_amd64.deb
-dpkg-deb -x linux-image-6.12.115+deb13.1-cloud-amd64_6.12.115-2_amd64.deb deb    # or: mkdir deb; ar x the .deb; tar -xf data.tar.xz -C deb
-xz -dc deb/usr/lib/modules/6.12.115+deb13.1-cloud-amd64/kernel/net/netfilter/nf_tables.ko.xz > nf_tables.ko
-curl -LO https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-vmlinux
-sh extract-vmlinux deb/boot/vmlinuz-6.12.115+deb13.1-cloud-amd64 > vmlinux    # first install zstd: Debian 13 packs its kernel with zstd
-file vmlinux                                                                   # must say ELF
-```
-
-Without `unzstd`, extract-vmlinux still exits 0 and writes the bzImage unchanged; btf2ida then says "install zstd". A kernel packed with gzip, xz, lzma or bzip2 (Debian 11, for example) needs no extract-vmlinux: choose the `vmlinuz` itself and btf2ida unpacks it. An arm64 `Image.gz` (Ubuntu's arm64 `vmlinuz`) is unpacked too, and so is an EFI zboot `vmlinuz` packed with gzip, xz or lzma (`MZ` ... `zimg`; a zstd one needs extract-vmlinux with zstd installed; checked on synthetic files only).
-
-SHA-256 of the results: `nf_tables.ko` 670cb309625f77c0…, `vmlinux` f741142f44058b03…. If the Debian pool no longer has this version, the same package is kept on snapshot.debian.org; another Debian 13 cloud kernel works the same way, with other numbers.
-
-In IDA: open `nf_tables.ko`, run **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes** and choose `vmlinux` when it asks; `nla_put` in the extern segment should get `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`. Outside IDA, the same import on a fake database (stand-in IDA modules, see the script's docstring):
-
-```
-python3 tests/check_module.py nf_tables.ko vmlinux
-```
-
-prints, among the summary lines:
-
-```
-Prototypes applied to 488 functions; rejected by IDA 0; not in this database 7; name is not a function start 0
-Typed 150 imported kernel functions in the extern segment (prototypes from the vmlinux BTF); rejected by IDA 0
-The module's 193 undefined symbols: 193 found in this database, 0 of them outside an extern segment (left alone: only imports in an extern segment are typed)
-Not applied: 4 'void f(void)' prototypes of known assembly functions such as memcpy (BTF records them without parameters) and 0 where IDA's type lists parameters; left as IDA has them
-```
-
-For the no-BTF case: `objcopy --remove-section .BTF nf_tables.ko nf_tables_nobtf.ko`, then the same command on `nf_tables_nobtf.ko` gives "Prototypes applied to 0 functions", the line "This kernel module has no BTF of its own ..." and the same 150 imports.
+Each in full, with numbers: [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ## Verification
 
-All numbers from runs on real kernels; the scripts are in `tests/`.
-
-| Check | Result |
-|---|---|
-| BTF layouts vs an independent DWARF-derived symbol file (`dwarf2json` ISF): the MemLens demo `kernel.elf` (79a64158…, Debian 13 6.12.115) with `debian-6.12.115+deb13.1-amd64.json.xz` from the same demo zip, `python3 tests/check_against_dwarf.py kernel.elf debian-6.12.115+deb13.1-amd64.json.xz` (exit 1 on any mismatch, or for an ISF of another kernel release) | 8,884 structs/unions compared, 0 size mismatches; 54,303 members compared, 0 offset mismatches; 1,364 bitfields (named members of named structs): 0 bit position or width mismatches, and the signedness btf2c gives 1,260 of them (all but `_Bool`) matches DWARF |
-| `tests/check_bitfields.py` (`python3 tests/check_bitfields.py kernel.elf`; a module: `python3 tests/check_bitfields.py nf_tables.ko --base vmlinux`; needs gcc): the header's C bitfields, compiled and run with gcc under its own rules and under `-mms-bitfields`; each bitfield is set through the struct and the bytes are compared with the BTF bit offset (4 cases, read back too, so signed fields must read negative), and sizeof and the next member's offset are asserted against the new and the old raw-byte header | MemLens demo `kernel.elf`: 2,222 of 2,239 bitfields as C bitfields (17 raw, in 3 runs); Debian 13 vmlinux `f741142f`: 1,973 of 1,973; WSL2 6.18.33.1: 3,115 of 3,131; Debian 13 `nf_tables.ko --base vmlinux`: 2,015 of 2,018. 0 failures under either rule set, also on arm64 GKI 6.1, Ubuntu 6.8 amd64 and arm64, Ubuntu mainline 7.0, Debian 11 5.10, BTFHub Ubuntu 5.8 and Debian 13 `bridge.ko`. gcc only, not IDA |
-| Generated C header compiled with `gcc -fsyntax-only -include stdbool.h`, WSL2 6.18 kernel (`/sys/kernel/btf/vmlinux`) and the carved Debian 13 data | compiles; 65,664 and 50,366 function prototypes, which also compile together with the header (on Debian 13 one, `dmi_callback`, has the same name as a typedef; `--prototypes` writes it as a comment) |
-| BTF carved from raw memory dumps of a running Debian 13 VM (1 GB, ELF core) | 113,902 types found in a few seconds (1 to 3 s measured) |
-| `--asserts`: 59,761 generated `_Static_assert` size and offset checks compiled with gcc against the generated header, the MemLens demo `kernel.elf` (the Debian 13 cloud-amd64 vmlinux `f741142f` gives 56,214) | all pass |
-| Split BTF of a kernel module (`nf_tables.ko`, Debian 13) with `--base vmlinux` | header generated and compiles |
-| The same module with the wrong base (the WSL 6.18 kernel's BTF) | refused with a clear error: 2,451 of 2,601 base string references land mid-string on WSL 6.18.33.1 (2,419 on an earlier WSL 6.18 build: the count depends on the exact kernel); with its own Debian 13 base, 0 of 1,090 |
-| Public x86-64 Android GKI kernel 6.1.84 (`kernel-6.1` + its `System.map`) | 134,947 BTF types; 58,909 of 61,982 named kernel functions (95.0%) have a BTF prototype to apply (names from `System.map`, which the plugin does not read: in IDA the kernel needs its symbols, for example via vmlinux-to-elf) |
-| `tests/check_ksymtab.py`: names from `__ksymtab` of a stripped (`objcopy -S`) vmlinux vs the debug vmlinux's symbol table | Debian 13 6.12: 10,497 of 10,497 exported code addresses match, 10,333 have a BTF prototype; Ubuntu 26.04 7.0: 14,717 of 14,717 (writable code-flagged sections excluded), 13,865 |
-| `tests/test_ksymtab.py`: synthetic ELFs, no kernel needed | all four `__ksymtab` entry layouts (place-relative 12 and 8 bytes, absolute 16 and 24) give the right names; GPL table read; code, data and writable code told apart; relocatable files, missing strings and non-ELF input refused |
-| `tests/check_ida_api.py` against HexRaysSA/ida-sdk IDAPython sources | 87 IDA API names used (module functions, constants and the methods btf2ida calls), 0 missing |
-| `tests/check_ida_names.py` against the IDAPython stubs of IDA 9.1, 9.2, 9.3, 9.4 (PyPI `idapro` 0.0.5, 0.0.7, 0.0.9, 0.0.11) and 9.5 (`idapro` 0.0.12) | 64 `ida_*` / `idc` module-level names used, 0 missing in each |
-| A compressed kernel chosen as the vmlinux (`tests/check_module.py`) | Debian 11 `nf_tables.ko` (5.10.0-32, no BTF of its own) with its xz `vmlinuz`: 95 imports typed, the same output as with the extracted vmlinux. Debian 13 zstd `vmlinuz`: refused with "install zstd". Ubuntu 24.04 arm64 6.8 `vmlinuz` (gzip `Image`): unpacked, BTF and release banner found |
-| arm64: Debian 13 `nf_tables.ko` (6.12.115+deb13.1-cloud-arm64) with that package's `vmlinuz` (an uncompressed `Image`) as the vmlinux, `tests/check_module.py` | 487 module functions and 137 imports typed; "Not applied: 2" (`memmove` and `strchr`, assembly on arm64) |
-| A BTFHub archive as input (for a kernel built without BTF, btf2ida asks for one; headless `--vmlinux`): Ubuntu 20.04 `5.8.0-63-generic.btf.tar.xz` (`btf2c.py`) | 49,744 prototypes (+1 written as a comment); header and prototypes compile with gcc |
-| `tests/test_unpack.py`: synthetic bzImages, EFI zboot images and BTF tar archives | gzip, xz, lzma and bzip2 payloads unpacked; zstd, lz4 and lzo refused with what to install; corrupt, truncated and unknown payloads refused |
-| `tests/test_plugin_stub.py` with fake `ida_*` modules | full flow passes |
-
-Not verified: behaviour inside real IDA, including how fast IDA ingests a full kernel's types, how it lays out the bitfields, and whether it rejects specific declarations (the plugin is written to split rejected batches and report them instead of failing; that relies on IDA ignoring a redeclaration when a batch is parsed again; the SDK documents it, since `parse_decls` "always uses the HTI_DCL bit", which means "don't complain about redeclarations" (`typeinf.hpp` in HexRaysSA/ida-sdk), but it has not been observed in IDA). The offline checks used x86-64 kernels, apart from the two arm64 rows.
-
-## Compared with bpftool and Parse C header file
-
-`bpftool btf dump file <vmlinux> format c` (bpftool 7.8.1) also writes kernel types as C, and IDA can parse a C header. What that route does not do, measured on the same inputs as the table above:
-
-- **No `.BTF` section, no BTF.** On the Debian 13 memory export it stops with `libbpf: failed to find '.BTF' ELF section ... No data available`. btf2ida carves the BTF out of the image instead (50,366 prototypes from the same file).
-- **Types only, no function prototypes.** On the WSL2 kernel bpftool's header has 172,354 lines but declares none of the 65,664 functions in the BTF (`vfs_read` and `tcp_sendmsg` do not appear; functions only show up as function-pointer typedefs). btf2ida applies the prototypes to the functions by name.
-- **Written for clang, not IDA.** The header opens with `#pragma clang attribute push (__attribute__((preserve_access_index)), ...)` and has 305 lines with `__attribute__`. btf2c writes plain declarations with explicit padding under `#pragma pack(1)`. We have not checked how IDA's parser treats bpftool's header.
-
-bpftool remains the right tool for CO-RE BPF programs; btf2ida is for getting the same data into an IDA database.
+The parsing and the generated types are checked against independent ground truth on real kernels, for example the MemLens demo kernel against its DWARF: 8,884 structs and unions, 54,303 member offsets and 1,364 bitfields, 0 mismatches. The IDA calls are checked against the official SDK and stubs and run against fake `ida_*` modules. If you try it in IDA and something is off, please open an issue. Every check, command and number: [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## How it works
 
-`btf.py` reads the BTF container (own or split base + module) with no dependencies. `btf2c.py` turns it into ordered C declarations IDA's parser accepts: dependency-sorted, with forward declarations, renamed reserved words, explicit padding so offsets match exactly under `#pragma pack(1)`, and bitfields as C bitfields that fill integers of 1, 2, 4 or 8 bytes (or raw bytes). `btf2ida_entry.py` is the thin IDA layer.
+`btf.py` reads the BTF (also carved from memory images, BTFHub archives and compressed kernels), `btf2c.py` turns it into C declarations IDA's parser accepts with every offset exact, and `btf2ida_entry.py` is the thin IDA layer. Unlike `bpftool btf dump`, it also finds BTF without a `.BTF` section and applies function prototypes. More: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
 
 ## Credits
 
-Author: Nightshift Labs (built by an AI agent, Claude). Please list the authors as "Nightshift Labs". Thanks to the Linux BTF authors and to the Volatility project (dwarf2json), used for the ground-truth check.
+Author: Nightshift Labs (built by an AI agent, Claude, operated by Nightshift Labs). Please list the authors as "Nightshift Labs". Thanks to the Linux BTF authors and to the Volatility project (dwarf2json), used for the ground-truth check.
 
 ## Licence
 
