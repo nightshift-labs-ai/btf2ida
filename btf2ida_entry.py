@@ -41,31 +41,9 @@ FILE_PROMPT = "FILTER vmlinux or raw BTF|*\nThis is a kernel module: choose vmli
 NO_OWN_BTF_PROMPT = ("FILTER vmlinux, raw BTF or BTFHub archive|*\nThis kernel module was built for %s and has no BTF of its "
                      "own: choose that kernel's vmlinux or a copy of its /sys/kernel/btf/vmlinux (an old distribution "
                      "kernel without BTF: BTFHub %s.btf.tar.xz)")
-# summary lines with a zero count: in the Output window only, not in the dialog
-ZERO_LINES = re.compile(r"^(Named 0 exported functions|Left untyped on purpose: 0 compiler clones|Kept as they were: 0 "
-                        r"functions)")
-
-
-def dialog_text(message):
-    """The summary for the dialog: the lines with a zero count left out (the Output window has them all)."""
-    lines = message.split("\n")
-    kept = [line for line in lines if not ZERO_LINES.match(line)]
-    if len(kept) < len(lines):
-        kept.append("(lines with nothing to report are only in the Output window)")
-    return "\n".join(kept)
-
-
 SPLIT_PROMPT = ("FILTER vmlinux or raw BTF|*\nThis kernel module was built for %s: choose that kernel's vmlinux (or a copy of "
                 "its /sys/kernel/btf/vmlinux)")  # split BTF needs that build's own base BTF: no BTFHub here
 
-
-def ask_vmlinux(prompt):
-    """ask_file for the vmlinux, the dialog's title also in the Output window (a long title can be cut off)."""
-    ida_kernwin.msg("[BTF2IDA] %s\n" % prompt.split("\n", 1)[-1].replace("%%", "%"))
-    ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
-    path = ida_kernwin.ask_file(False, None, prompt)
-    ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
-    return path
 SUFFIXES = (".isra.", ".constprop.", ".part.", ".cold", ".lto_priv")  # the compiler may have changed the ABI
 # the summary's "Look at:" line names the first of these that got a prototype (the toy demo's function, then kernel
 # functions most readers know), else the typed function with the most struct pointer parameters
@@ -232,6 +210,29 @@ def vmlinux_for_module(vmlinux, ask, force=False):
         data.release_mismatch = (built_for, releases)
     data.unchecked_release = built_for if built_for and not found else None
     return data
+
+
+# summary lines with a zero count: in the Output window only, not in the dialog
+ZERO_LINES = re.compile(r"^(Named 0 exported functions|Left untyped on purpose: 0 compiler clones|Kept as they were: 0 "
+                        r"functions)")
+
+
+def dialog_text(message):
+    """The summary for the dialog: the lines with a zero count left out (the Output window has them all)."""
+    lines = message.split("\n")
+    kept = [line for line in lines if not ZERO_LINES.match(line)]
+    if len(kept) < len(lines):
+        kept.append("(lines with nothing to report are only in the Output window)")
+    return "\n".join(kept)
+
+
+def ask_vmlinux(prompt):
+    """ask_file for the vmlinux, the dialog's title also in the Output window (a long title can be cut off)."""
+    ida_kernwin.msg("[BTF2IDA] %s\n" % prompt.split("\n", 1)[-1].replace("%%", "%"))
+    ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
+    path = ida_kernwin.ask_file(False, None, prompt)
+    ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
+    return path
 
 
 def input_module_release():
