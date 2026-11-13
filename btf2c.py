@@ -220,7 +220,9 @@ class Generator:
 
     def decl_const(self, type_id, inner):
         t = self.strip(type_id)
-        if t is None or t.kind in (B.PTR, B.ARRAY, B.FUNC_PROTO):
+        if t is not None and t.kind == B.ARRAY:  # const applies to the elements: const T x[n] (an alias typedef too)
+            return self.decl_const(t.data[0], "%s[%d]" % (inner, t.data[2]))
+        if t is None or t.kind in (B.PTR, B.FUNC_PROTO):
             return self.decl(type_id, inner)
         return "const " + self.decl(type_id, inner)
 

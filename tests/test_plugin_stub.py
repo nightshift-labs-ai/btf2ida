@@ -1490,4 +1490,24 @@ assert "undefined symbols" not in m.report("x", modgen, [], dict(m.apply_prototy
 nalt.get_input_file_path = lambda: os.path.join(tempfile.mkdtemp(), "gone.ko")
 assert m.undefined_in_database() is None
 print("stub test OK: undefined symbols of the module counted (ELF64 LE, ELF32 BE), 'outside an extern segment' explained")
+
+# __builtin_va_list (review s180 MINOR-3, NIT-3): a typedef named __builtin_* is written as its target (clang refuses to
+# redefine its builtin), also behind a pointer (the loop in decl: a pointer to the array needs (*p)[1]) and a const
+vab = Build()
+vab.t("unsigned int", 1, 0, 4, struct.pack("<I", 32))                                       # 1
+vab.t("__va_list_tag", 4, 1, 24, struct.pack("<III", vab.s("gp_offset"), 1, 0))             # 2
+vab.t("", 3, 0, 0, struct.pack("<III", 2, 1, 1))                                            # 3  struct __va_list_tag [1]
+vab.t("__builtin_va_list", 8, 0, 3)                                                          # 4
+vab.t("", 2, 0, 4)                                                                           # 5  __builtin_va_list *
+vab.t("", 10, 0, 4)                                                                          # 6  const __builtin_va_list
+vab.t("va_holder", 4, 2, 32, struct.pack("<IIIIII", vab.s("p"), 5, 0, vab.s("b"), 6, 64))   # 7
+vab.t("", 13, 0, 5)                                                                          # 8  __builtin_va_list *(void)
+vab.t("get_va", 12, 0, 8)                                                                    # 9
+va_gen = btf2c.Generator(B.BTF(vab.blob()))
+va_text = btf2c.header(va_gen) + "\n".join(proto for _name, proto in va_gen.prototypes())
+assert "__builtin_" not in va_text, va_text
+assert "struct __va_list_tag (*p)[1];" in va_text, va_text  # not 'struct __va_list_tag *p[1]' (an array of pointers)
+assert "const struct __va_list_tag b[1];" in va_text, va_text
+assert "struct __va_list_tag (*get_va(void))[1]" in va_text, va_text
+print("stub test OK: __builtin_va_list written as its target behind a pointer, a const and a return type")
 print("stub test OK (fake IDA modules)")
