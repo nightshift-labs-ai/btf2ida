@@ -651,7 +651,8 @@ def main(argv=None):
                 handle.write("_Static_assert(sizeof(%s %s) == %d, \"%s\");\n" % (kinds[tag], tag, size, tag))
                 for member, offset in fields.items():
                     handle.write("_Static_assert(__builtin_offsetof(%s %s, %s) == %d, \"%s.%s\");\n" % (kinds[tag], tag, member, offset, tag, member))
-    print(generator.stats, file=sys.stderr)
+    print("btf2c: wrote %s: %s" % (args.output, ", ".join("%s %d" % (key.replace("_", " "), value)
+                                                       for key, value in generator.stats.items())), file=sys.stderr)
 
 
 if __name__ == "__main__":
