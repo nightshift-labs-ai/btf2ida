@@ -84,7 +84,7 @@ Or copy this folder into your IDA `plugins` directory. IDA 9.0 or later. The plu
 
 ## Usage
 
-Open a kernel or kernel module, then **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**. If IDA is still analysing, btf2ida first offers to wait. A summary says how many types IDA accepted and how many prototypes were applied.
+Open a kernel or kernel module, then **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**. If IDA is still analysing, btf2ida first offers to wait. A summary says how many types IDA accepted and how many prototypes were applied; its first line is a one-line headline, and a "Look at:" line names one typed function to open with F5 (`tcp_sendmsg` on a kernel that has it).
 
 - **BTF2IDA: Apply kernel types and prototypes (bitfields as raw bytes)** does the same with every bitfield as raw bytes.
 - Headless with idalib: `python3 tools/btf2ida_headless.py vmlinux` (a module: `nf_tables.ko --vmlinux vmlinux`).

@@ -39,6 +39,10 @@ import ksymtab  # noqa: E402
 
 FILE_PROMPT = "FILTER vmlinux or raw BTF|*\nThis is a kernel module: choose vmlinux (or a copy of /sys/kernel/btf/vmlinux)"
 SUFFIXES = (".isra.", ".constprop.", ".part.", ".cold", ".lto_priv")  # the compiler may have changed the ABI
+# the summary's "Look at:" line names the first of these that got a prototype (the toy demo's function, then kernel
+# functions most readers know), else the typed function with the most struct pointer parameters
+LOOK_AT = ("demo_open", "tcp_sendmsg", "do_sys_openat2", "vfs_read", "vfs_write", "commit_creds")
+STRUCT_POINTER = re.compile(r"\bstruct\s+\w+\s*\*")
 
 
 def parse_batch(text):
@@ -467,12 +471,26 @@ def set_prototype(address, name, declaration, result, is_import=False, own=None)
         result["void_" + why] += 1
     elif idc.SetType(address, unnamed(declaration, name) + ";"):
         result["imports" if is_import else "applied"] += 1
+        if not is_import:
+            consider_example(result, address, name, declaration)
         if ours:
             result["retyped"] += 1
         if own is not None:
             own.altset_ea(address, type_mark(address))
     else:
         result["imports_rejected" if is_import else "rejected"].append(name)
+
+
+def consider_example(result, address, name, declaration):
+    """Keep in result["example"] the function the summary's "Look at:" line names: the first name of LOOK_AT that got
+    a prototype, else the one with the most struct pointer parameters (the lowest address on a tie)."""
+    if name in LOOK_AT:
+        rank = (1, -LOOK_AT.index(name))
+    else:
+        rank = (0, len(STRUCT_POINTER.findall(declaration[declaration.find("("):])))
+    key = rank + (-address,)
+    if "example" not in result or key > result["example"][0]:
+        result["example"] = (key, address, name, declaration.strip().rstrip(";"))
 
 
 def undefined_in_database():
@@ -538,6 +556,13 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
     lines = ["CANCELLED: the import stopped early, so only part of what is listed below reached the database."] if cancelled else []
     if analysis_pending:
         lines.append(ANALYSIS_PENDING)
+    lines.append("BTF2IDA: {:,} types sent to IDA; {:,} functions typed with their kernel prototype".format(
+        stats["structs"] + stats["unions"] + stats["enums"] + stats["typedefs"], result["applied"]))
+    if result.get("example"):
+        _, address, name, declaration = result["example"]
+        if len(declaration) > 160:
+            declaration = declaration[:157] + "..."
+        lines.append("Look at: %s at 0x%X: %s (press F5 there)" % (name, address, declaration))
     lines += [
         "BTF from %s: %d types" % (source, generator.btf.count),
         "Declarations sent to IDA: %d structs, %d unions, %d enums, %d typedefs (%d rejected by IDA); "
