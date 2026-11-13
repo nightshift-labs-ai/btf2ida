@@ -23,8 +23,9 @@ import types
 HERE = os.path.dirname(os.path.abspath(__file__))
 USAGE = "usage: python3 tests/check_module.py <module.ko> <vmlinux> [--no-names] [--force]"
 
-FUNC_BASE = 0x1000      # fake addresses of the module's own functions
-EXTERN_BASE = 0x900000  # fake extern segment; everything at or above it is SEG_XTRN
+FUNC_BASE = 0x1000      # fake addresses of the module's own functions, 0x40 apart
+EXTERN_BASE = 0x900000  # fake extern segment (everything at or above it is SEG_XTRN), moved up when the functions
+                        # need the room (more than 147,392: a stripped kernel with names restored by vmlinux-to-elf)
 
 
 def elf_symbols(blob):
@@ -50,15 +51,20 @@ def elf_symbols(blob):
 
 
 def fake_database(module_path, vmlinux_path, with_names=True):
-    """Install stand-in IDA modules in sys.modules; returns (functions, externs, SetType log)."""
+    """Install stand-in IDA modules in sys.modules; returns (functions, externs, SetType log). The extern segment
+    starts at extern_base(functions), above every function."""
     with open(module_path, "rb") as handle:
         symbols = elf_symbols(handle.read())
-    functions, externs = {}, {}
+    functions, imports = {}, []
     for name, kind, shndx in symbols:
         if shndx == 0:  # SHN_UNDEF: an import
-            externs.setdefault(name, EXTERN_BASE + 16 * len(externs))
+            imports.append(name)
         elif kind == 2 and name not in functions:  # STT_FUNC
             functions[name] = FUNC_BASE + 0x40 * len(functions)
+    xtrn = extern_base(functions)
+    externs = {}
+    for name in imports:
+        externs.setdefault(name, xtrn + 16 * len(externs))
     names = {**functions, **externs} if with_names else {}
     by_address = {address: name for name, address in names.items()}
     settype = []
@@ -90,8 +96,14 @@ def fake_database(module_path, vmlinux_path, with_names=True):
     module("ida_nalt", get_input_file_path=lambda: module_path, is_userti=lambda ea: False)
     module("ida_name", SN_NOCHECK=1, SN_NOWARN=256, set_name=lambda *a: True)
     module("ida_segment", SEG_XTRN=1, SEG_CODE=2,
-           segtype=lambda ea: 1 if EXTERN_BASE <= ea < badaddr else 2)
+           segtype=lambda ea: 1 if xtrn <= ea < badaddr else 2)
     return functions, externs, settype
+
+
+def extern_base(functions):
+    """EXTERN_BASE, or the first 1 MB boundary above the last fake function address when the functions reach it."""
+    end = FUNC_BASE + 0x40 * len(functions)
+    return max(EXTERN_BASE, (end + 0xFFFFF) & ~0xFFFFF)
 
 
 def main(argv):
@@ -116,7 +128,7 @@ def main(argv):
     print(summary)
     print("SetType calls: %d (%.1f s)" % (len(settype), time.time() - start))
     by_address = {ea: name for name, ea in externs.items()}
-    shown = [(ea, decl) for ea, decl in settype if ea >= EXTERN_BASE][:3]
+    shown = [(ea, decl) for ea, decl in settype if ea >= extern_base(functions)][:3]
     for ea, decl in shown:  # btf2ida passes IDA a fixed declarator name; show the import's own name here
         print("  import typed: %s" % decl.strip().replace("__btf2ida_fn(", by_address.get(ea, "?") + "(", 1))
     return 0

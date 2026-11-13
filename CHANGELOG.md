@@ -10,6 +10,7 @@ Taken from the GitHub release notes. Newest first.
 - `docs/KERNELS.md`: vmlinux-to-elf recipe for Android GKI and distribution kernels, measured: GKI 6.1 / 6.6 / 6.12 98.6% / 97.9% / 93.7%; Ubuntu mainline 7.0 68,698 prototypes applied (13,840 from `__ksymtab` alone).
 - New `tests/check_docs.py`: relative links and anchors in README and docs/.
 - Logo: 109 KB (was 1.3 MB), shown in the README.
+- `tests/check_module.py`: the fake extern segment now starts above the last fake function, so a file with more than 147,392 functions (a whole kernel with names restored by vmlinux-to-elf) no longer prints stray `import typed: ... ?(...)` lines; checked by the new `tests/check_module_layout.py`. The counts it prints do not change.
 
 ## v0.1.22 (2026-11-15)
 

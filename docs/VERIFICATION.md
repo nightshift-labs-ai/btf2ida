@@ -71,7 +71,7 @@ Left untyped on purpose: 15299 compiler clones (.isra, .constprop, .part, .cold)
 Not applied: 132 'void f(void)' prototypes of known assembly functions such as memcpy (BTF records them without parameters) ...
 ```
 
-On a database this large the script's fake extern segment overlaps its fake function addresses, so it also prints a few `import typed: ... ?(...)` lines; a whole kernel has no imports, and the counts above do not depend on them.
+The Ubuntu 7.0 file has 188,129 functions; the script's fake extern segment starts above the last of them (before 0.1.23 it overlapped them past 147,392 functions and printed a few stray `import typed: ... ?(...)` lines; the counts above are the same either way, `tests/check_module_layout.py` checks the layout).
 
 vmlinux-to-elf's names against the kernel's own `__ksymtab` (`python3 tests/check_ksymtab.py vmlinux ubuntu70.elf`; the stripped vmlinux first, the vmlinux-to-elf output in place of a debug vmlinux):
 
