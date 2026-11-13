@@ -239,9 +239,13 @@ def input_module_release():
     path = ida_nalt.get_input_file_path()
     if not path:
         return None
-    try:
+    try:  # mapped, not read: the input can be a memory image of several GB (re-review s179 NIT-D)
         with open(path, "rb") as handle:
-            return B.module_release(handle.read())
+            blob = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
+            try:
+                return B.module_release(blob)
+            finally:
+                blob.close()
     except (OSError, ValueError):
         return None
 
