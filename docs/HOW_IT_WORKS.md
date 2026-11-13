@@ -5,7 +5,7 @@
 ## The pieces
 
 - `btf.py` reads the BTF container (own or split base + module) with no dependencies. It also finds BTF where there is no `.BTF` section: carved out of a memory image by its header, inside a BTFHub archive, or in a compressed kernel it unpacks.
-- `btf2c.py` turns it into ordered C declarations IDA's parser accepts: dependency-sorted, with forward declarations, renamed reserved words, explicit padding so offsets match exactly under `#pragma pack(1)`, and bitfields as C bitfields that fill integers of 1, 2, 4 or 8 bytes (or raw bytes).
+- `btf2c.py` turns it into ordered C declarations IDA's parser accepts: dependency-sorted, with forward declarations, renamed reserved words, explicit padding so offsets match exactly under `#pragma pack(1)`, every member at its exact byte offset (packed and anonymous members included), and bitfields as C bitfields that fill integers of 1, 2, 4 or 8 bytes (or raw bytes).
 - `ksymtab.py` names a stripped kernel's exported functions from its own `__ksymtab`.
 - `btf2ida_entry.py` is the thin IDA layer: it sends the declarations to IDA, applies the prototypes by name, reads the bitfield layout back from IDA and writes the summary. `tools/btf2ida_headless.py` runs the same code with idalib.
 

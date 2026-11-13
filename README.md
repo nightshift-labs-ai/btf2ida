@@ -10,7 +10,7 @@ Open a Linux kernel in IDA and get its **real types and function prototypes** wi
 - **Prototypes by name**, including the kernel functions a module imports.
 - **Finds the BTF itself** in a `vmlinux`, a `.ko`, a memory image or a BTFHub file.
 
-**What changes**, on the bundled toy: `demo_open` gets `int demo_open(struct demo_device *dev, unsigned int flags)`, and its stores to `[rdi+0xc]` and the word at `[rdi+0x8]` become `dev->state`, `dev->mode` and `dev->refs` ([every access](demo/expected_members.txt)). In a real module, the import `nla_put` gets `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`.
+**Expected**, on the bundled toy: `demo_open` should get `int demo_open(struct demo_device *dev, unsigned int flags)`, and its stores to `[rdi+0xc]` and the word at `[rdi+0x8]` should become `dev->state`, `dev->mode` and `dev->refs` ([every access](demo/expected_members.txt)). In a real module, the import `nla_put` should get `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`.
 
 ## Try it
 
@@ -63,7 +63,7 @@ int vfs_getattr(const struct path *path, struct kstat *stat, u32 request_mask, u
 | What you have | Do this first | Functions with a prototype (measured outside IDA) |
 |---|---|---|
 | A kernel with symbols | nothing | MemLens demo: 91.8% |
-| A distribution `vmlinuz` (x86-64) | `extract-vmlinux`, then `vmlinux-to-elf vmlinux kernel.elf` | Ubuntu mainline 7.0: 72.0% (68,698) |
+| A distribution `vmlinuz` (x86-64) | `extract-vmlinux`, then `vmlinux-to-elf vmlinux kernel.elf` | Ubuntu mainline 7.0: 72.0% (68,830 of 95,537) |
 | Android GKI `boot.img` or raw `Image` | `vmlinux-to-elf Image kernel.elf` ([recipe](docs/KERNELS.md#android-gki-and-other-raw-images)) | GKI 6.1 / 6.6 / 6.12: 98.6% / 97.9% / 93.7% |
 | A kernel module `.ko` | choose its kernel's `vmlinux` when asked | `nf_tables.ko`: 488 own, 150 imports |
 | A kernel without BTF | choose a [BTFHub](https://github.com/aquasecurity/btfhub-archive) file when asked | as for its kind above |
@@ -106,7 +106,7 @@ Each in full, with numbers: [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ## Verification
 
-The parsing and the generated types are checked against independent ground truth on real kernels, for example the MemLens demo kernel against its DWARF: 8,884 structs and unions, 54,303 member offsets and 1,364 bitfields, 0 mismatches. The IDA calls are checked against the official SDK and stubs and run against fake `ida_*` modules. If you try it in IDA and something is off, please open an issue. Every check, command and number: [docs/VERIFICATION.md](docs/VERIFICATION.md).
+The parsing and the generated types are checked against independent ground truth on real kernels, for example the MemLens demo kernel against its DWARF: 8,884 structs and unions, 54,303 member offsets and 1,364 bitfields, 0 mismatches. The IDA calls are only checked to exist in the official SDK and IDAPython stubs, and run against fake `ida_*` modules. If you try it in IDA and something is off, please open an issue. Every check, command and number: [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## How it works
 
