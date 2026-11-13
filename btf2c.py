@@ -117,9 +117,13 @@ class Generator:
         return size
 
     def typedef_alias(self, t):
-        """A typedef emitted as its target: `typedef struct a a;` and names IDA reserves (bool)."""
+        """A typedef emitted as its target: `typedef struct a a;`, names IDA reserves (bool), and compiler builtins.
+
+        `typedef struct __va_list_tag __builtin_va_list[1];` is an error in clang (IDA 9.5's default type parser):
+        a redefinition of its builtin. Writing it as its target (`typedef struct __va_list_tag va_list[1];`) also keeps
+        the layout BTF's, not that of the parser's target (an arm64 va_list is a 32-byte struct, x86-64's 24 bytes)."""
         target = self.strip(t.ref)
-        if ident(t.name) != t.name:
+        if ident(t.name) != t.name or t.name.startswith("__builtin_"):
             return True
         return target is not None and target.kind in (B.STRUCT, B.UNION, B.ENUM, B.ENUM64) and target.name == t.name
 
@@ -198,6 +202,8 @@ class Generator:
             return self.decl(t.ref, inner) if not const else self.decl_const(t.ref, inner)
         if t.kind == B.PTR:
             target = self.strip(t.ref)
+            while target is not None and target.kind == B.TYPEDEF and self.typedef_alias(target):
+                target = self.strip(target.ref)  # written as its target: a pointer to an array needs (*p)[n] too
             if target is not None and target.kind == B.ARRAY and target.data[2] == 0:
                 return self.decl(target.data[0], "*" + inner)  # same layout; IDA's parser is unproven on (*x)[0]
             if target is not None and target.kind in (B.ARRAY, B.FUNC_PROTO):
