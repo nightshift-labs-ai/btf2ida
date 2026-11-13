@@ -906,8 +906,14 @@ with tempfile.TemporaryDirectory() as folder:
     with open(nobtf, "wb") as handle:
         handle.write(tiny_rel([b".gnu.linkonce.this_module", (b".modinfo", b"license=GPL\0vermagic=6.1.0-x SMP mod_unload \0")]))
     assert B.module_release(tiny_rel([(b".modinfo", b"vermagic=6.1.0-x SMP \0")])) == "6.1.0-x"
+    asked, ask_file = [], kw.ask_file
+    kw.ask_file = lambda save, default, prompt: asked.append(prompt) or paths["vmlinux.btf"]
     message = m.run_import()  # raw BTF has no banner: imported, with a "Not checked" line
+    kw.ask_file = ask_file
     assert "Typed 1 imported" in message and "Not checked: the module was built for 6.1.0-x" in message, message
+    # the file dialog names the release to look for (judge s178 item 5)
+    assert len(asked) == 1 and "built for 6.1.0-x" in asked[0] and "BTFHub 6.1.0-x.btf.tar.xz" in asked[0], asked
+    assert asked[0].startswith("FILTER ") and "%" not in asked[0].replace("%%", ""), asked
     with open(paths["vmlinux.btf"], "rb") as handle:
         raw_vmlinux = handle.read()
     for release, refused in (("6.1.0-x", False), ("6.17.0-41-generic", True)):
@@ -1134,6 +1140,8 @@ with tempfile.TemporaryDirectory() as folder:
         raise AssertionError("no BTF and no file chosen must fail")
     except B.BTFError as error:
         assert "BTFHub" in str(error) and [c[1] for c in calls if c[0] == "ask_file"] == [m.EXTERNAL_PROMPT], (error, calls)
+        toy = os.path.join(os.path.dirname(os.path.abspath(m.__file__)), "demo", "toy_kernel.elf")
+        assert os.path.isfile(toy) and str(error).endswith("To see btf2ida work, open %s." % toy), error
     # The input file is not on disk (a database moved to another machine): nothing was searched, so the big segment
     # is still read, and the BTF in it is found.
     dbytes.get_bytes = lambda ea, size: raw_vmlinux

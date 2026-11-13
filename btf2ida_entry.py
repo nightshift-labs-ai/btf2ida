@@ -38,6 +38,8 @@ import btf2c  # noqa: E402
 import ksymtab  # noqa: E402
 
 FILE_PROMPT = "FILTER vmlinux or raw BTF|*\nThis is a kernel module: choose vmlinux (or a copy of /sys/kernel/btf/vmlinux)"
+NO_OWN_BTF_PROMPT = ("FILTER vmlinux, raw BTF or BTFHub archive|*\nThis kernel module was built for %s and has no BTF of its "
+                     "own: choose that kernel's vmlinux, a copy of its /sys/kernel/btf/vmlinux, or BTFHub %s.btf.tar.xz")
 SUFFIXES = (".isra.", ".constprop.", ".part.", ".cold", ".lto_priv")  # the compiler may have changed the ABI
 # the summary's "Look at:" line names the first of these that got a prototype (the toy demo's function, then kernel
 # functions most readers know), else the typed function with the most struct pointer parameters
@@ -175,8 +177,12 @@ def vmlinux_for_module(vmlinux, ask, force=False):
     if not path and not ask:
         raise B.BTFError(why + ": give the matching vmlinux with --vmlinux to type the kernel functions it calls.")
     if not path:
+        built_for = input_module_release()
+        # whether IDAPython passes ask_file's prompt on as a printf format is not checked: a release with a '%' (none
+        # known) gets the plain prompt
+        prompt = NO_OWN_BTF_PROMPT % (built_for, built_for) if built_for and "%" not in built_for else FILE_PROMPT
         ida_kernwin.hide_wait_box()  # no modal dialog over a wait box
-        path = ida_kernwin.ask_file(False, None, FILE_PROMPT)
+        path = ida_kernwin.ask_file(False, None, prompt)
         ida_kernwin.show_wait_box("BTF2IDA: reading BTF")
     if not path:
         raise B.BTFError(why + ": choose the matching vmlinux to type the kernel functions it calls.")
@@ -851,9 +857,11 @@ def run_import(vmlinux=None, ask=True, force=False, bitfields=True):
                              "cannot read it or tell whether it is a kernel module. Put the file back at that path." % path)
         data, chosen = external_btf(vmlinux, ask)
         if data is None:
+            toy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo", "toy_kernel.elf")
             raise B.BTFError("no BTF found in the input file or the loaded segments. For a distribution kernel built "
                              "without BTF, BTFHub (github.com/aquasecurity/btfhub-archive) has BTF files by kernel "
-                             "release: choose one (<release>.btf.tar.xz) when btf2ida asks (headless: --vmlinux <file>).")
+                             "release: choose one (<release>.btf.tar.xz) when btf2ida asks (headless: --vmlinux <file>)."
+                             + (" To see btf2ida work, open %s." % toy if os.path.isfile(toy) else ""))
         theirs = getattr(data, "external_releases", set())
         ours = input_releases() if theirs else set()
         if theirs and ours and not theirs & ours:

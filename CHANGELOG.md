@@ -11,6 +11,7 @@ Taken from the GitHub release notes. Newest first.
 - New `tests/check_docs.py`: relative links and anchors in README and docs/.
 - Logo: 109 KB (was 1.3 MB), shown in the README.
 - Summary: a headline first (`BTF2IDA: N types sent to IDA; M functions typed with their kernel prototype`), then a "Look at:" line that names one typed function, its address and its new prototype, to open with F5 (`demo_open` on the toy, `tcp_sendmsg` on the MemLens demo kernel); checked by the new `tests/check_summary.py` on the fake database of `tests/check_module.py`, not in IDA.
+- A kernel module without BTF of its own: the file dialog names the release the module was built for (its `vermagic`) and the BTFHub file of that release. "No BTF found": the error ends with the path of the toy demo (`demo/toy_kernel.elf` in the plugin folder). Checked in `tests/test_plugin_stub.py` with fake `ida_*` modules.
 - `tests/check_module.py`: the fake extern segment now starts above the last fake function, so a file with more than 147,392 functions (a whole kernel with names restored by vmlinux-to-elf) no longer prints stray `import typed: ... ?(...)` lines; checked by the new `tests/check_module_layout.py`. The counts it prints do not change.
 
 ## v0.1.22 (2026-11-15)
