@@ -53,6 +53,7 @@ def choice():
     # only top-level parameters count: struct pointers inside a callback type do not
     assert pick((0x10, "a", "int a(void (*cb)(struct x *p, struct y *q), int n)"), (0x20, "b", "int b(struct x *p)")) == "b"
     assert pick((0x10, "a", "int a(void (*cb)(int n, struct y *q, struct z *r), int n)"), (0x20, "b", "int b(struct x *p)")) == "b"
+    assert pick((0x10, "a", "int a(void (*cb)(struct x *p))"), (0x20, "b", "int b(struct x *p, int a_long_name)")) == "b"
     # a struct passed by value is not a struct pointer
     assert pick((0x10, "i", "int i(struct x a, struct y b, struct z c)"), (0x20, "j", "int j(struct x *p)")) == "j"
     # the same count: the shorter declaration, then the lower address

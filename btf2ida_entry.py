@@ -617,8 +617,8 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
     else:
         lines.append("BTF2IDA: %d types sent to IDA; %d function%s typed with %s kernel prototype%s" % (
             types, typed, "" if typed == 1 else "s", "its" if typed == 1 else "their",
-            " (%d of them kernel functions the module calls, in its extern segment)" % result["imports"]
-            if result["imports"] else ""))
+            (" (%s kernel functions the module calls, in its extern segment)"
+             % ("all of them" if result["imports"] == typed else "%d of them" % result["imports"])) if result["imports"] else ""))
     if result.get("example"):
         _, address, name, declaration = result["example"]
         if len(declaration) > 160:

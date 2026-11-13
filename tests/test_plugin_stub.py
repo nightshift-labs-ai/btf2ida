@@ -918,7 +918,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert "Typed 1 imported" in message and "Not checked: the module was built for 6.1.0-x" in message, message
     # the headline counts the typed imports of a module without BTF of its own (review s179 M1)
     assert message.splitlines()[0].startswith("BTF2IDA: ") and message.splitlines()[0].endswith(
-        "; 1 function typed with its kernel prototype (1 of them kernel functions the module calls, in its extern "
+        "; 1 function typed with its kernel prototype (all of them kernel functions the module calls, in its extern "
         "segment)"), message
     # the file dialog names the release to look for (judge s178 item 5)
     assert len(asked) == 1 and "built for 6.1.0-x" in asked[0] and "BTFHub 6.1.0-x.btf.tar.xz" in asked[0], asked
