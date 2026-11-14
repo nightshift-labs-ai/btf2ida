@@ -1,0 +1,33 @@
+# Which struct member each access of nft_data_init through its pointer arguments touches, in btf2ida's layout.
+# Written by tests/check_kit_members.py from `objdump -d -r -M intel` of the try-module kit's nf_tables.ko
+# and its split BTF on vmlinux.btf; derived offline, not IDA output. nf_tables.ko SHA-256:
+# 670cb309625f77c02648042687844827505b276348a73b04e723c70507ad7d67
+# Prototype btf2ida applies:
+# int nft_data_init(const struct nft_ctx *ctx, struct nft_data *data, struct nft_data_desc *desc, const struct nlattr *nla)
+# Arguments at the entry (System V order): rdi = ctx, rsi = data, rdx = desc, rcx = nla.
+# A register counts while it holds one of them (also after a copy to another register) or a struct pointer
+# loaded from one (ctx->net), on every path to the access; stack slots are not tracked.
+# Offsets into nft_data_init, which objdump puts at 0x2ac0 of .text (IDA may load the section at another address).
+# After the import the decompiler should show these members instead of offsets from the arguments.
+# Several members on one line: the access overlaps all of them (the members of a union overlap).
+#
+# offset  instruction  offset from the arguments  ->  member
++0x13   mov r8d,DWORD PTR [rdx+0x4]          arg3+0x4           ->  desc->size
++0x4a   movzx eax,WORD PTR [rcx]             arg4+0x0           ->  nla->nla_len
++0x66   lea rdx,[rcx+0x4]                    arg4+0x4           ->  nla + 1 (right after the 4-byte struct nlattr)
++0x8a   mov ecx,DWORD PTR [r12]              arg3+0x0           ->  desc->type
++0xa7   cmp DWORD PTR [r12+0x4],edx          arg3+0x4           ->  desc->size
++0xb2   mov eax,DWORD PTR [r12+0x8]          arg3+0x8           ->  desc->len
++0xf0   mov DWORD PTR [r12+0x8],edx          arg3+0x8           ->  desc->len
++0x10e  cmp DWORD PTR [r12],0xffffff00       arg3+0x0           ->  desc->type
++0x11c  mov rax,QWORD PTR [rbp+0x0]          arg1+0x0           ->  ctx->net
++0x14a  movzx r13d,BYTE PTR [rax+0xc64]      *(arg1+0x0)+0xc64  ->  ctx->net->nft.gencursor
++0x188  mov QWORD PTR [rbx],0x0              arg2+0x0           ->  data->data[0..1], data->verdict.code
++0x18f  mov QWORD PTR [rbx+0x8],0x0          arg2+0x8           ->  data->data[2..3], data->verdict.chain
++0x19e  mov DWORD PTR [rbx],eax              arg2+0x0           ->  data->data[0], data->verdict.code
++0x1af  mov DWORD PTR [r12+0x8],0x10         arg3+0x8           ->  desc->len
++0x1ec  mov rdi,QWORD PTR [rbp+0x8]          arg1+0x8           ->  ctx->table
++0x210  test BYTE PTR [r12+0xc],0x1          arg3+0xc           ->  desc->flags (byte 0 of 4)
++0x22f  mov QWORD PTR [rbx+0x8],rdx          arg2+0x8           ->  data->data[2..3], data->verdict.chain
++0x246  mov rsi,QWORD PTR [rbp+0x8]          arg1+0x8           ->  ctx->table
++0x24a  mov rdi,QWORD PTR [rbp+0x0]          arg1+0x0           ->  ctx->net
