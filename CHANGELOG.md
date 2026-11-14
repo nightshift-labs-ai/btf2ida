@@ -2,7 +2,7 @@
 
 Taken from the GitHub release notes. Newest first.
 
-## Unreleased
+## v0.1.23 (2026-11-16)
 
 - `btf2c.py` ends with its statistics as plain text (`btf2c: wrote types.h: structs ..., unions ..., ...`) instead of a Python dict; the header and prototypes it writes are unchanged.
 - New release asset [`btf2ida-try-module.zip`](https://github.com/nightshift-labs-ai/btf2ida/releases/download/try-module/btf2ida-try-module.zip) (1.7 MB): Debian 13's `nf_tables.ko` and its kernel's BTF as `vmlinux.btf`, for a real-kernel try in IDA on any OS; README "A real module in two minutes". `tests/check_module.py nf_tables.ko vmlinux.btf` prints the same counts as with the full vmlinux (488 own functions, 150 imports typed).
