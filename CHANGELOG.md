@@ -2,6 +2,10 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## Unreleased
+
+- README, "A real module in two minutes": step 1 now also presses F5 in `nft_data_init`, and a new step 4 quotes three lines of the new `docs/kit_members.txt` to compare with after the import: each access of `nft_data_init` through its pointer arguments and the member btf2ida's layout puts there, for example `[rdx+0x4]` as `desc->size` and `[rax+0xc64]` as `ctx->net->nft.gencursor` (19 accesses). Derived offline by the new `tests/check_kit_members.py nf_tables.ko vmlinux.btf` from `objdump -d -r` and the module's split BTF on `vmlinux.btf`, not IDA output. It follows the function's jumps and keeps a register only while it holds an argument (or a copy of it, or a struct pointer loaded from one) on every path; the relocations matter: without them the `__fentry__` call at the start would end the tracking of every argument (no access named). With no arguments it checks only the README's quotes of the file. `check_toy_members.Layout` takes an optional base BTF. Not run in IDA.
+
 ## v0.1.24 (2026-11-17)
 
 - Summary, "Look at:" line: a typed function whose prototype is at most 160 characters, so the line shows it uncut now wins over one that would be cut, before the struct pointer count (the names of `LOOK_AT`, such as `tcp_sendmsg` on a whole kernel, still come first). On the try-module kit (`tests/check_module.py nf_tables.ko vmlinux.btf`, fake database) it was `nft_chain_parse_hook` with a 7-parameter prototype cut at "str...", now `int nft_data_init(const struct nft_ctx *ctx, struct nft_data *data, struct nft_data_desc *desc, const struct nlattr *nla)`; README step 3 of "A real module in two minutes" names it (then `nla_put`). New case in `tests/check_summary.py` (fails without the change). Not run in IDA.
