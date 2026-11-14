@@ -4,7 +4,8 @@ Taken from the GitHub release notes. Newest first.
 
 ## Unreleased
 
-- README, "A real module in two minutes": step 1 now also presses F5 in `nft_data_init`, and a new step 4 quotes three lines of the new `docs/kit_members.txt` to compare with after the import: each access of `nft_data_init` through its pointer arguments and the member btf2ida's layout puts there, for example `[rdx+0x4]` as `desc->size` and `[rax+0xc64]` as `ctx->net->nft.gencursor` (19 accesses). Derived offline by the new `tests/check_kit_members.py nf_tables.ko vmlinux.btf` from `objdump -d -r` and the module's split BTF on `vmlinux.btf`, not IDA output. It follows the function's jumps and keeps a register only while it holds an argument (or a copy of it, or a struct pointer loaded from one) on every path; the relocations matter: without them the `__fentry__` call at the start would end the tracking of every argument (no access named). With no arguments it checks only the README's quotes of the file. `check_toy_members.Layout` takes an optional base BTF. Not run in IDA.
+- README, "A real module in two minutes": step 1 now also presses F5 in `nft_data_init`, and a new step 4 says what to compare after the import, with three lines of the new `docs/kit_members.txt`. That file has 19 lines for `nft_data_init`: each access through its arguments (and one address, `nla + 1`) with the member it touches, for example `[rdx+0x4]` as `desc->size` and `[rax+0xc64]` as `ctx->net->nft.gencursor`. It is derived offline from `objdump -d -r` and the BTF by the new `tests/check_kit_members.py nf_tables.ko vmlinux.btf`, not IDA output. Not run in IDA.
+- README: the "Expected" paragraph names `ctx->net->nft.gencursor` in `nf_tables.ko` in place of the `nla_put` prototype (still in module step 3); the bitfield note of toy step 3 and module step 3 are shorter.
 
 ## v0.1.24 (2026-11-17)
 

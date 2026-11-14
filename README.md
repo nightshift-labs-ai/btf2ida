@@ -10,7 +10,7 @@ Open a Linux kernel in IDA and get its **real types and function prototypes** wi
 - **Prototypes by name**, including the kernel functions a module imports.
 - **Finds the BTF itself** in a `vmlinux`, a `.ko`, a memory image or a BTFHub file.
 
-**Expected**, on the bundled toy: `demo_open` should get `int demo_open(struct demo_device *dev, unsigned int flags)` and its store to `[rdi+0xc]` should become `dev->state`; `demo_checksum` should read `dev->id`, `dev->x`, `dev->y` and `dev->private_` ([every access](demo/expected_members.txt)). In a real module, the import `nla_put` should get `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`.
+**Expected**, on the bundled toy: `demo_open` should get `int demo_open(struct demo_device *dev, unsigned int flags)` and its store to `[rdi+0xc]` should become `dev->state`; `demo_checksum` should read `dev->id`, `dev->x`, `dev->y` and `dev->private_` ([every access](demo/expected_members.txt)). In a real module, `nf_tables.ko`, the load at `[rax+0xc64]` in `nft_data_init` should become `ctx->net->nft.gencursor` ([kit](#a-real-module-in-two-minutes)).
 
 ## Try it
 
@@ -32,7 +32,7 @@ hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/t
    dev->mode = flags & 7;
    return dev->refs++;
    ```
-   `mode` and `refs` are bitfields: the code sets `mode` with a byte read-modify-write at `[rdi+0x8]` and `refs` with a word read-modify-write at the same address. Whether Hex-Rays folds these masks into `dev->mode` and `dev->refs` has not been seen in real IDA; it may show the masks instead.
+   `mode` and `refs` are bitfields (read-modify-writes at `[rdi+0x8]`); Hex-Rays may show them as masks rather than `dev->mode` and `dev->refs`.
 4. In `demo_checksum`, the sum should read `dev->id`, `dev->x`, `dev->y` and `dev->private_` (`private` is renamed: it is a C++ keyword, which IDA's parser may refuse), as in `demo/toy_kernel.c:47-49`:
    ```c
    long sum = (long)dev->id + dev->x + dev->y + dev->private;
@@ -50,9 +50,9 @@ Download [`btf2ida-try-module.zip`](https://github.com/nightshift-labs-ai/btf2id
 
 1. Unzip it, open `nf_tables.ko` in IDA (it takes seconds) and press F5 in `nft_data_init`, to compare later.
 2. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**, and choose `vmlinux.btf` when it asks for the module's kernel.
-3. The summary's "Look at:" line names `nft_data_init`; press F5 there. btf2ida gives it (fake database; Hex-Rays prints it its own way) `int nft_data_init(const struct nft_ctx *ctx, struct nft_data *data, struct nft_data_desc *desc, const struct nlattr *nla)`.
+3. The summary's "Look at:" line names `nft_data_init`; press F5 there. btf2ida applies `int nft_data_init(const struct nft_ctx *ctx, struct nft_data *data, struct nft_data_desc *desc, const struct nlattr *nla)` to it (measured on a fake database).
    The import `nla_put` in the extern segment should be `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`. Expected in total: 488 of the module's own functions and 150 imported kernel functions typed (`python3 tests/check_module.py nf_tables.ko vmlinux.btf`, on a fake IDA database).
-4. Compared with step 1, the accesses of `nft_data_init` through its arguments should read as members instead of offsets. 3 of the 19 lines of [`docs/kit_members.txt`](docs/kit_members.txt) (offset from the arguments, then member; derived offline from `objdump -d -r` and the BTF by `tests/check_kit_members.py`, not IDA output; Hex-Rays prints them its own way):
+4. Compared with step 1, the accesses of `nft_data_init` through its arguments should read as members instead of offsets. 3 of the 19 lines of [`docs/kit_members.txt`](docs/kit_members.txt) (offset in the function, instruction, offset from the arguments, member; derived offline from `objdump -d -r` and the BTF by `tests/check_kit_members.py`, not IDA output):
    ```
    +0x13   mov r8d,DWORD PTR [rdx+0x4]          arg3+0x4           ->  desc->size
    +0x14a  movzx r13d,BYTE PTR [rax+0xc64]      *(arg1+0x0)+0xc64  ->  ctx->net->nft.gencursor
