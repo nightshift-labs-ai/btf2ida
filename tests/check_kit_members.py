@@ -37,7 +37,8 @@ The result is where the decompiler should show member names instead of offsets f
 It is derived offline; it is not IDA output. It also checks that each line the README quotes in the code block after
 a link to docs/kit_members.txt is a line of that file (whitespace aside), and the counts of the README's linking line
 ("3 of the 19 lines") and of docs/VERIFICATION.md ("19 lines named"). Exit 0: all match; 1: drift (the
-differences are printed); 2: objdump or a file is missing.
+differences are printed); 2: objdump or a file is missing, or a file is not the kit's (no BTF, another kernel's BTF,
+no nft_data_init). With --write the file is written, then the README's quotes and the counts are checked against it.
 """
 import difflib
 import hashlib
@@ -339,15 +340,19 @@ def self_test():
     return failed
 
 
+class WrongFile(Exception):
+    """A file that is not the kit's (main exits 2)."""
+
+
 def render(module_path, vmlinux_path):
     kit = Kit.load(module_path, vmlinux_path)
     func = next((t for t in kit.gen.btf if t.kind == B.FUNC and t.name == FUNCTION), None)
     if func is None:
-        raise SystemExit("check_kit_members: no BTF prototype for %s in %s" % (FUNCTION, module_path))
+        raise WrongFile("no BTF prototype for %s in %s" % (FUNCTION, module_path))
     proto = kit.gen.btf[func.ref]
     section, start, code = disassemble(module_path, FUNCTION)
     if not code:
-        raise SystemExit("check_kit_members: %s is not in objdump's output for %s" % (FUNCTION, module_path))
+        raise WrongFile("%s is not in objdump's output for %s" % (FUNCTION, module_path))
     rows = annotate(kit, code, track(kit, code, proto.data))
     with open(module_path, "rb") as handle:
         digest = hashlib.sha256(handle.read()).hexdigest()
@@ -431,12 +436,15 @@ def main(argv):
         if missing:
             print("check_kit_members: %s is missing\n%s" % (", ".join(missing), USAGE), file=sys.stderr)
             return 2
-        text = render(*paths)
-        if "--write" in argv:
+        try:
+            text = render(*paths)
+        except (B.BTFError, WrongFile, subprocess.CalledProcessError) as error:
+            print("check_kit_members: %s\n%s" % (error, USAGE), file=sys.stderr)
+            return 2
+        if "--write" in argv:  # then the README's quotes are checked against what was written
             with open(EXPECTED, "w") as handle:
                 handle.write(text)
             print("wrote %s" % os.path.relpath(EXPECTED, ROOT))
-            return 0
     if not os.path.isfile(EXPECTED):
         print("check_kit_members: %s is missing (run with the kit and --write)" % EXPECTED, file=sys.stderr)
         return 2
