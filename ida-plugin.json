@@ -3,7 +3,7 @@
   "plugin": {
     "name": "btf2ida",
     "entryPoint": "btf2ida_entry.py",
-    "version": "0.1.23",
+    "version": "0.1.24",
     "idaVersions": ">=9.1",
     "description": "Linux kernel types and function prototypes from the kernel's own BTF (vmlinux, modules, memory images), no debug package needed; not yet run in real IDA.",
     "license": "MIT",

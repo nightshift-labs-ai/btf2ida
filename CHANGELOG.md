@@ -2,7 +2,7 @@
 
 Taken from the GitHub release notes. Newest first.
 
-## Unreleased
+## v0.1.24 (2026-11-17)
 
 - Summary, "Look at:" line: a typed function whose prototype is at most 160 characters, so the line shows it uncut now wins over one that would be cut, before the struct pointer count (the names of `LOOK_AT`, such as `tcp_sendmsg` on a whole kernel, still come first). On the try-module kit (`tests/check_module.py nf_tables.ko vmlinux.btf`, fake database) it was `nft_chain_parse_hook` with a 7-parameter prototype cut at "str...", now `int nft_data_init(const struct nft_ctx *ctx, struct nft_data *data, struct nft_data_desc *desc, const struct nlattr *nla)`; README step 3 of "A real module in two minutes" names it (then `nla_put`). New case in `tests/check_summary.py` (fails without the change). Not run in IDA.
 - README, toy: the "Expected" line and step 3 now lead with what plain loads and stores give (the prototype, `dev->state`, and `dev->id`/`x`/`y`/`private_` in `demo_checksum`). Step 3 says that `mode` and `refs` are bitfields, set with a byte and a word read-modify-write at `[rdi+0x8]` (`objdump -d` of `demo/toy_kernel.elf`), and that whether Hex-Rays folds those masks into `dev->mode` and `dev->refs` has not been seen in real IDA. The README no longer says "the word at `[rdi+0x8]`": `mode` is stored as a byte.
