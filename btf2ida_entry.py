@@ -46,8 +46,10 @@ SPLIT_PROMPT = ("FILTER vmlinux or raw BTF|*\nThis kernel module was built for %
 
 SUFFIXES = (".isra.", ".constprop.", ".part.", ".cold", ".lto_priv")  # the compiler may have changed the ABI
 # the summary's "Look at:" line names the first of these that got a prototype (the toy demo's function, then kernel
-# functions most readers know), else the typed function with the most struct pointer parameters
+# functions most readers know), else, among the typed functions whose prototype fits the line untruncated, the one
+# with the most struct pointer parameters
 LOOK_AT = ("demo_open", "tcp_sendmsg", "do_sys_openat2", "vfs_read", "vfs_write", "commit_creds")
+LOOK_AT_WIDTH = 160  # a longer prototype is cut to this many characters (with "...") on the "Look at:" line
 STRUCT_POINTER = re.compile(r"^\s*(?:const\s+)?struct\s+\w+\s*\*[\s*]*(?:const\s+)?\w*\s*$")  # a struct pointer parameter
 
 
@@ -541,15 +543,17 @@ def top_level_parameters(declaration, name):
 
 def consider_example(result, address, name, declaration):
     """Keep in result["example"] the function the summary's "Look at:" line names: the first name of LOOK_AT that got
-    a prototype, else the one with the most top-level struct pointer parameters (on a tie the shorter declaration,
-    then the lowest address)."""
+    a prototype, else one whose prototype fits the line untruncated (LOOK_AT_WIDTH) over one that does not (a module
+    such as nf_tables.ko otherwise showed a cut 7-parameter prototype), then the most top-level struct pointer
+    parameters (on a tie the shorter declaration, then the lowest address)."""
+    shown = declaration.strip().rstrip(";")
     if name in LOOK_AT:
-        rank = (1, -LOOK_AT.index(name))
+        rank = (2, -LOOK_AT.index(name))
     else:
-        rank = (0, sum(1 for p in top_level_parameters(declaration, name) if STRUCT_POINTER.match(p)))
+        rank = (int(len(shown) <= LOOK_AT_WIDTH), sum(1 for p in top_level_parameters(declaration, name) if STRUCT_POINTER.match(p)))
     key = rank + (-len(declaration), -address)
     if "example" not in result or key > result["example"][0]:
-        result["example"] = (key, address, name, declaration.strip().rstrip(";"))
+        result["example"] = (key, address, name, shown)
 
 
 def undefined_in_database():
@@ -626,8 +630,8 @@ def report(source, generator, failed, result, named=0, cancelled=False, no_proto
              % ("all of them" if result["imports"] == typed else "%d of them" % result["imports"])) if result["imports"] else ""))
     if result.get("example"):
         _, address, name, declaration = result["example"]
-        if len(declaration) > 160:
-            declaration = declaration[:157] + "..."
+        if len(declaration) > LOOK_AT_WIDTH:
+            declaration = declaration[:LOOK_AT_WIDTH - 3] + "..."
         lines.append("Look at: %s at 0x%X: %s (press F5 there)" % (name, address, declaration))
     lines += [
         "BTF from %s: %d types" % (source, generator.btf.count),

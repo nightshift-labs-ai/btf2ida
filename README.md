@@ -50,7 +50,7 @@ Download [`btf2ida-try-module.zip`](https://github.com/nightshift-labs-ai/btf2id
 
 1. Unzip it and open `nf_tables.ko` in IDA (it takes seconds).
 2. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**, and choose `vmlinux.btf` when it asks for the module's kernel.
-3. Look at the import `nla_put` in the extern segment: it should be `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`. Expected in total: 488 of the module's own functions and 150 imported kernel functions typed (`python3 tests/check_module.py nf_tables.ko vmlinux.btf`, on a fake IDA database).
+3. The summary's "Look at:" line names `nft_data_init`: press F5 there; it should be `int nft_data_init(const struct nft_ctx *ctx, struct nft_data *data, struct nft_data_desc *desc, const struct nlattr *nla)`. The import `nla_put` in the extern segment should be `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`. Expected in total: 488 of the module's own functions and 150 imported kernel functions typed (`python3 tests/check_module.py nf_tables.ko vmlinux.btf`, on a fake IDA database).
 
 ### A real kernel, ready with symbols and BTF
 

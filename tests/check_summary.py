@@ -65,6 +65,12 @@ def choice():
     # a name of LOOK_AT wins over any count
     assert pick((0x90, "many", "int many(struct a *a, struct b *b, struct c *c)"),
                 (0xA0, "tcp_sendmsg", "int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)")) == "tcp_sendmsg"
+    # a prototype that fits the line untruncated wins over a cut one with more struct pointers (judge 0123 item 3:
+    # nf_tables.ko showed "nft_chain_parse_hook ... str...")
+    cut = "int cut(" + ", ".join("struct nft_base_chain_%d *basechain_%d" % (i, i) for i in range(5)) + ")"
+    assert len(cut) > 160, len(cut)  # the width the summary cuts at (LOOK_AT_WIDTH)
+    assert pick((0x100, "cut", cut), (0x110, "fits", "int fits(struct x *p)")) == "fits"
+    assert pick((0x100, "cut", cut), (0x110, "fits", "int fits(int n)")) == "fits"
     # set_prototype: an import, or a prototype IDA rejects, is never the example
     result = {"applied": 0, "imports": 0, "rejected": [], "imports_rejected": [], "kept": 0, "retyped": 0,
               "void_asm": 0, "void_ida": 0, "void_removed": 0}
@@ -78,7 +84,8 @@ def choice():
     assert result["rejected"] == ["vfs_read"] and "example" not in result, result
     m.set_prototype(0x1040, "vfs_read", "long vfs_read(struct file *f)", result)
     assert result["applied"] == 1 and result["example"][2] == "vfs_read", result
-    print("OK Look-at choice: top-level struct pointers, shorter, lower address; LOOK_AT first; no import, no rejected")
+    print("OK Look-at choice: untruncated first, then top-level struct pointers, shorter, lower address; LOOK_AT first; "
+          "no import, no rejected")
 
 
 if __name__ == "__main__":
