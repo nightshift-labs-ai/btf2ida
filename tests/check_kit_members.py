@@ -31,7 +31,8 @@ through to the next instruction (the kernel's WARN_ON is a `ud2` that returns).
 
 The result is where the decompiler should show member names instead of offsets from the arguments after the import.
 It is derived offline; it is not IDA output. It also checks that each line the README quotes in the code block after
-a link to docs/kit_members.txt is a line of that file (whitespace aside). Exit 0: all match; 1: drift (the
+a link to docs/kit_members.txt is a line of that file (whitespace aside), and the counts of the README's linking line
+("3 of the 19 lines") and of docs/VERIFICATION.md ("19 lines named"). Exit 0: all match; 1: drift (the
 differences are printed); 2: objdump or a file is missing.
 """
 import difflib
@@ -53,6 +54,7 @@ import check_toy_members as toy  # noqa: E402  (its Layout: btf2c's members, as 
 FUNCTION = "nft_data_init"
 EXPECTED = os.path.join(ROOT, "docs", "kit_members.txt")
 README = os.path.join(ROOT, "README.md")
+VERIFICATION = os.path.join(ROOT, "docs", "VERIFICATION.md")
 USAGE = "usage: python3 tests/check_kit_members.py [nf_tables.ko vmlinux.btf [--write]]"
 
 REG64 = {"rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp"} | {"r%d" % n for n in range(8, 16)}
@@ -314,9 +316,17 @@ def normal(line):
     return " ".join(line.split())
 
 
+def rows(expected):
+    """The lines of docs/kit_members.txt that name an access (not its # header)."""
+    return [line for line in expected.splitlines() if line.strip() and not line.startswith("#")]
+
+
 def readme_quotes(expected):
-    """Lines the README quotes from docs/kit_members.txt (the code block after a link to it) that are not in it."""
-    wanted = {normal(line) for line in expected.splitlines() if not line.startswith("#")}
+    """Problems with the README's quotes of docs/kit_members.txt (the code block after a link to it): a quoted line
+    that is not a line of the file, or a count on the linking line ("3 of the 19 lines") that is not the block's and
+    the file's. Also the count in docs/VERIFICATION.md ("19 lines named"). Returns (problems, lines quoted)."""
+    total = len(rows(expected))
+    wanted = {normal(line) for line in rows(expected)}
     with open(README) as handle:
         lines = handle.read().splitlines()
     problems, found = [], 0
@@ -332,6 +342,17 @@ def readme_quotes(expected):
             if normal(lines[number]) not in wanted:
                 problems.append("README.md:%d quotes %r, which is not a line of docs/kit_members.txt"
                                 % (number + 1, lines[number].strip()))
+        count = re.search(r"(\d+) of the (\d+) lines", line)
+        if count is None or int(count.group(1)) != end - fence - 1 or int(count.group(2)) != total:
+            problems.append("README.md:%d says %r; the block quotes %d of the file's %d lines"
+                            % (i + 1, count.group(0) if count else "no 'N of the M lines'", end - fence - 1, total))
+    with open(VERIFICATION) as handle:
+        lines = handle.read().splitlines()
+    row = next((i for i, line in enumerate(lines) if "tests/check_kit_members.py" in line), None)
+    count = re.search(r"(\d+) lines named", lines[row]) if row is not None else None
+    if count is None or int(count.group(1)) != total:
+        problems.append("docs/VERIFICATION.md:%s says %r; docs/kit_members.txt has %d lines"
+                        % (row + 1 if row is not None else "?", count.group(0) if count else "no 'N lines named'", total))
     return problems, found
 
 
@@ -368,11 +389,13 @@ def main(argv):
     for problem in problems:
         print(problem)
     if problems or not found:
-        print("README quotes of docs/kit_members.txt: %d checked, %d differ" % (found, len(problems)))
+        print("docs/kit_members.txt in README.md and docs/VERIFICATION.md: %d quote(s) checked, %d problem(s)"
+              % (found, len(problems)))
         status = 1
     if status == 0:
-        print("%s%d README quote(s) of it match%s" % ("docs/kit_members.txt matches the kit; " if paths else "",
-                                                    found, "" if paths else " (give the kit's two files to regenerate it)"))
+        print("%s%d README quote(s) of it and its count (%d lines) in README.md and docs/VERIFICATION.md match%s"
+              % ("docs/kit_members.txt matches the kit; " if paths else "", found, len(rows(old)),
+                 "" if paths else " (give the kit's two files to regenerate it)"))
     return status
 
 
