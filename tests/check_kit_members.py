@@ -3,7 +3,7 @@
 
     python3 tests/check_kit_members.py nf_tables.ko vmlinux.btf           # compare with docs/kit_members.txt
     python3 tests/check_kit_members.py nf_tables.ko vmlinux.btf --write   # write it again
-    python3 tests/check_kit_members.py                                    # only the README's quotes of the file
+    python3 tests/check_kit_members.py                                    # only the self-test and the README's quotes
 
 The two files are those of the try-module kit (btf2ida-try-module.zip, README "A real module in two minutes"). This is
 tests/check_toy_members.py on real kernel code: nft_data_init, the function the summary's "Look at:" line names on the
@@ -28,6 +28,9 @@ first access, and no access would be named) and treats a relocated jump as leavi
 call), not as a jump to the next instruction. An access in an instruction that has a relocation is not named (its
 displacement may be the relocated part); string instructions (rep movs, rep stos) are not named either. `ud2` falls
 through to the next instruction (the kernel's WARN_ON is a `ud2` that returns).
+
+A self-test runs these rules on hand-built code with the toy's demo_open (SELF_TEST), with or without the kit: on
+nft_data_init some of them (the joins, the calls, ud2, negative displacements) cannot change the output.
 
 The result is where the decompiler should show member names instead of offsets from the arguments after the import.
 It is derived offline; it is not IDA output. It also checks that each line the README quotes in the code block after
@@ -116,14 +119,19 @@ def successors(code, where, index):
 
 
 class Kit:
-    """btf2c's layout of the module's split BTF on vmlinux.btf, and the member text of an access."""
+    """btf2c's layout (a check_toy_members.Layout) and the member text of an access."""
 
-    def __init__(self, module_path, vmlinux_path):
+    def __init__(self, layout):
+        self.layout = layout
+        self.gen = layout.gen
+
+    @classmethod
+    def load(cls, module_path, vmlinux_path):
+        """The module's split BTF on vmlinux.btf."""
         with open(vmlinux_path, "rb") as handle:
             base = B.load_base(B.unpack_kernel_image(handle.read(), vmlinux_path), vmlinux_path)
         with open(module_path, "rb") as handle:
-            self.layout = toy.Layout(handle.read(), base=base)
-        self.gen = self.layout.gen
+            return cls(toy.Layout(handle.read(), base=base))
 
     def members(self, struct, lo, size, prefix=""):
         """Paths of the members of `struct` that bytes lo..lo+size touch (size 0, a `lea`: the member at lo)."""
@@ -277,8 +285,50 @@ def annotate(kit, code, state):
     return out
 
 
+# Hand-built code on the toy's demo_open(struct demo_device *dev, unsigned int flags), dev in rdi: what each case
+# pins, the code, and the member text expected at its last instruction (None: not named). On nft_data_init some of
+# these rules cannot change the output, and without the kit only this runs.
+SELF_TEST = [
+    ("a join counts a register only if every path leaves it holding the argument",
+     [(0x0, "je", ["4 <L>"], []), (0x2, "mov", ["rdi", "0x0"], []), (0x4, "mov", ["eax", "DWORD PTR [rdi+0xc]"], [])],
+     None),
+    ("a call clobbers rdi", [(0x0, "call", ["5 <f>"], []), (0x5, "mov", ["eax", "DWORD PTR [rdi+0xc]"], [])], None),
+    ("the __fentry__ call keeps the arguments",
+     [(0x0, "call", ["5 <f>"], [("R_X86_64_PLT32", "__fentry__-0x4")]),
+      (0x5, "mov", ["eax", "DWORD PTR [rdi+0xc]"], [])], "dev->state"),
+    ("a relocated jmp leaves the function (it does not join the next instruction)",
+     [(0x0, "je", ["9 <L>"], []), (0x2, "mov", ["rdi", "0x0"], []),
+      (0x4, "jmp", ["9 <L>"], [("R_X86_64_PLT32", "__x86_return_thunk-0x4")]),
+      (0x9, "mov", ["eax", "DWORD PTR [rdi+0xc]"], [])], "dev->state"),
+    ("ud2 falls through", [(0x0, "ud2", [], []), (0x2, "mov", ["eax", "DWORD PTR [rdi+0xc]"], [])], "dev->state"),
+    ("a 32-bit write ends the tracking",
+     [(0x0, "mov", ["edi", "0x0"], []), (0x5, "mov", ["eax", "DWORD PTR [rdi+0xc]"], [])], None),
+    ("a negative displacement is outside the struct",
+     [(0x0, "mov", ["eax", "DWORD PTR [rdi-0x4]"], [])], "dev (outside the 48-byte struct demo_device)"),
+    ("a struct pointer loaded from a member is followed",
+     [(0x0, "mov", ["rax", "QWORD PTR [rdi+0x20]"], []), (0x4, "mov", ["rdx", "QWORD PTR [rax+0x8]"], [])],
+     "dev->ops->close"),
+]
+
+
+def self_test():
+    """The SELF_TEST cases that fail, as text."""
+    if not os.path.isfile(toy.ELF):
+        return ["%s is missing" % toy.ELF]
+    with open(toy.ELF, "rb") as handle:
+        kit = Kit(toy.Layout(handle.read()))
+    arguments = kit.layout.prototype("demo_open").data
+    failed = []
+    for what, code, expected in SELF_TEST:
+        hits = [r for r in annotate(kit, code, track(kit, code, arguments)) if r[0] == code[-1][0]]
+        got = hits[0][3] if hits else None
+        if got != expected:
+            failed.append("self-test, %s: %r, expected %r" % (what, got, expected))
+    return failed
+
+
 def render(module_path, vmlinux_path):
-    kit = Kit(module_path, vmlinux_path)
+    kit = Kit.load(module_path, vmlinux_path)
     func = next((t for t in kit.gen.btf if t.kind == B.FUNC and t.name == FUNCTION), None)
     if func is None:
         raise SystemExit("check_kit_members: no BTF prototype for %s in %s" % (FUNCTION, module_path))
@@ -351,8 +401,8 @@ def readme_quotes(expected):
     row = next((i for i, line in enumerate(lines) if "tests/check_kit_members.py" in line), None)
     count = re.search(r"(\d+) lines named", lines[row]) if row is not None else None
     if count is None or int(count.group(1)) != total:
-        problems.append("docs/VERIFICATION.md:%s says %r; docs/kit_members.txt has %d lines"
-                        % (row + 1 if row is not None else "?", count.group(0) if count else "no 'N lines named'", total))
+        problems.append("docs/VERIFICATION.md:%s says %r; docs/kit_members.txt has %d lines" % (
+            row + 1 if row is not None else "?", count.group(0) if count else "no 'N lines named'", total))
     return problems, found
 
 
@@ -381,6 +431,11 @@ def main(argv):
     with open(EXPECTED) as handle:
         old = handle.read()
     status = 0
+    failed = self_test()
+    for problem in failed:
+        print(problem)
+    if failed:
+        status = 1
     if paths and old != text:
         sys.stdout.writelines(difflib.unified_diff(old.splitlines(True), text.splitlines(True),
                                                    "docs/kit_members.txt", "regenerated"))
@@ -393,9 +448,10 @@ def main(argv):
               % (found, len(problems)))
         status = 1
     if status == 0:
-        print("%s%d README quote(s) of it and its count (%d lines) in README.md and docs/VERIFICATION.md match%s"
-              % ("docs/kit_members.txt matches the kit; " if paths else "", found, len(rows(old)),
-                 "" if paths else " (give the kit's two files to regenerate it)"))
+        print("%s%d README quote(s) of it and its count (%d lines) in README.md and docs/VERIFICATION.md match; "
+              "self-test: %d cases pass%s" % ("docs/kit_members.txt matches the kit; " if paths else "", found,
+                                             len(rows(old)), len(SELF_TEST),
+                                             "" if paths else " (give the kit's two files to regenerate it)"))
     return status
 
 
