@@ -2,6 +2,10 @@
 
 Taken from the GitHub release notes. Newest first.
 
+## Unreleased
+
+- README, toy: the "Expected" line and step 3 now lead with what plain loads and stores give (the prototype, `dev->state`, and `dev->id`/`x`/`y`/`private_` in `demo_checksum`). Step 3 says that `mode` and `refs` are bitfields, set with a byte and a word read-modify-write at `[rdi+0x8]` (`objdump -d` of `demo/toy_kernel.elf`), and that whether Hex-Rays folds those masks into `dev->mode` and `dev->refs` has not been seen in real IDA. The README no longer says "the word at `[rdi+0x8]`": `mode` is stored as a byte.
+
 ## v0.1.23 (2026-11-16)
 
 - `btf2c.py` ends with its statistics as plain text (`btf2c: wrote types.h: structs ..., unions ..., ...`) instead of a Python dict; the header and prototypes it writes are unchanged.

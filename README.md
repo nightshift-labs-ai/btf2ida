@@ -10,7 +10,7 @@ Open a Linux kernel in IDA and get its **real types and function prototypes** wi
 - **Prototypes by name**, including the kernel functions a module imports.
 - **Finds the BTF itself** in a `vmlinux`, a `.ko`, a memory image or a BTFHub file.
 
-**Expected**, on the bundled toy: `demo_open` should get `int demo_open(struct demo_device *dev, unsigned int flags)`, and its stores to `[rdi+0xc]` and the word at `[rdi+0x8]` should become `dev->state`, `dev->mode` and `dev->refs` ([every access](demo/expected_members.txt)). In a real module, the import `nla_put` should get `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`.
+**Expected**, on the bundled toy: `demo_open` should get `int demo_open(struct demo_device *dev, unsigned int flags)` and its store to `[rdi+0xc]` should become `dev->state`; `demo_checksum` should read `dev->id`, `dev->x`, `dev->y` and `dev->private_` ([every access](demo/expected_members.txt)). In a real module, the import `nla_put` should get `int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)`.
 
 ## Try it
 
@@ -26,12 +26,13 @@ hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/t
 
 1. Open `toy_kernel.elf` in IDA and press **F5** in `demo_open` and `demo_checksum`. With no types, the decompiler can only show their accesses to `dev` as offsets.
 2. **Edit > Plugins > BTF2IDA: Apply kernel types and prototypes**.
-3. Press **F5** in `demo_open` again. It should be `int demo_open(struct demo_device *dev, unsigned int flags)` (all five prototypes are in `demo/expected_prototypes.txt`), with a body that reads like its source, `demo/toy_kernel.c:33-35`:
+3. Press **F5** in `demo_open` again. It should be `int demo_open(struct demo_device *dev, unsigned int flags)` (all five prototypes are in `demo/expected_prototypes.txt`), and its store to `[rdi+0xc]` should read `dev->state = DEMO_RUNNING;`. Its source, `demo/toy_kernel.c:33-35`:
    ```c
    dev->state = DEMO_RUNNING;
    dev->mode = flags & 7;
    return dev->refs++;
    ```
+   `mode` and `refs` are bitfields: the code sets `mode` with a byte read-modify-write at `[rdi+0x8]` and `refs` with a word read-modify-write at the same address. Whether Hex-Rays folds these masks into `dev->mode` and `dev->refs` has not been seen in real IDA; it may show the masks instead.
 4. In `demo_checksum`, the sum should read `dev->id`, `dev->x`, `dev->y` and `dev->private_` (`private` is renamed: it is a C++ keyword, which IDA's parser may refuse), as in `demo/toy_kernel.c:47-49`:
    ```c
    long sum = (long)dev->id + dev->x + dev->y + dev->private;
