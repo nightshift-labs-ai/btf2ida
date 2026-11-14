@@ -55,8 +55,8 @@ def family(reg):
 class Layout:
     """Members of the toy's structs as btf2c writes them: flattened inline members, bit offsets, renamed names."""
 
-    def __init__(self, blob):
-        self.gen = btf2c.Generator(B.load(blob))
+    def __init__(self, blob, base=None):
+        self.gen = btf2c.Generator(B.load(blob, base=base))  # base: the vmlinux BTF of a module (check_kit_members)
         self.gen.declarations()  # fills tags and bitfield_layout, as for the header
         self.structs = {t.id: t for t in self.gen.btf if t.kind in (B.STRUCT, B.UNION) and t.name}
 
