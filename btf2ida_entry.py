@@ -1034,6 +1034,23 @@ def wait_for_analysis():
     return True
 
 
+def refresh_decompiler():
+    """After an import: drop the decompiler's cached pseudocode, so a function decompiled before the import (the
+    README's toy steps press F5 first) shows its new types when opened again, and redraw the views. Without the
+    decompiler (no ida_hexrays, or init_hexrays_plugin() false) only the redraw. A failure here is only logged: it
+    must not hide the summary."""
+    try:
+        try:
+            import ida_hexrays
+        except ImportError:
+            ida_hexrays = None
+        if ida_hexrays is not None and ida_hexrays.init_hexrays_plugin():
+            ida_hexrays.clear_cached_cfuncs()
+        ida_kernwin.refresh_idaview_anyway()
+    except Exception as error:  # noqa: BLE001
+        ida_kernwin.msg("[BTF2IDA] could not refresh the decompiler and the views (%s); press F5 again to see the new types\n" % error)
+
+
 class ApplyBTF(ida_kernwin.action_handler_t):
     def __init__(self, bitfields=True):
         ida_kernwin.action_handler_t.__init__(self)
@@ -1055,6 +1072,7 @@ class ApplyBTF(ida_kernwin.action_handler_t):
         if problem:
             ida_kernwin.warning("BTF2IDA: %s" % problem)
         if message:
+            refresh_decompiler()
             ida_kernwin.msg("[BTF2IDA] %s\n" % message)
             ida_kernwin.info(dialog_text(message).replace("%", "%%"))  # info() is printf-style in IDAPython (not wrapped like msg/warning)
         return 1

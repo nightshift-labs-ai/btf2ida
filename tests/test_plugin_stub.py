@@ -401,6 +401,7 @@ kw.show_wait_box = kw.replace_wait_box = lambda s: None
 kw.hide_wait_box = lambda: None
 kw.user_cancelled = lambda: False
 kw.ASKBTN_NO, kw.ASKBTN_YES, kw.ASKBTN_CANCEL = 0, 1, -1
+kw.refresh_idaview_anyway = lambda: calls.append(("refresh",))
 kw.ask_yn = lambda deflt, text: calls.append(("ask_yn", deflt, text)) or kw.ASKBTN_NO
 api = types.ModuleType("ida_idaapi")
 api.plugin_t = object
@@ -468,6 +469,27 @@ parsed = "\n".join(c[1] for c in calls if c[0] == "parse")
 assert "struct task {" in parsed and "#pragma" not in parsed and "signed char b:5;" in parsed
 message = [c[1] for c in calls if c[0] == "info"][0]
 assert "applied to 1 functions" in message and "not in this database 1" in message and "not a function start 1" in message and "1 compiler clones" in message, message
+# After a run that ends with a summary, the decompiler's cached pseudocode is dropped (README step 1 presses F5 before
+# the import) and the views are redrawn, before the summary dialog (review s190 F10). init_hexrays_plugin() false:
+# no clear_cached_cfuncs; no ida_hexrays module (no decompiler): only the redraw, and no error.
+hexrays_calls = []
+hx = types.ModuleType("ida_hexrays")
+hx.clear_cached_cfuncs = lambda: hexrays_calls.append("clear")
+sys.modules["ida_hexrays"] = hx
+for usable, wanted in ((True, ["init", "clear"]), (False, ["init"])):
+    hx.init_hexrays_plugin = lambda flags=0, usable=usable: hexrays_calls.append("init") or usable
+    del calls[:], hexrays_calls[:]
+    assert m.ApplyBTF().activate(None) == 1, calls
+    assert hexrays_calls == wanted, (usable, hexrays_calls)
+    assert [c[0] for c in calls if c[0] in ("refresh", "info", "warn")] == ["refresh", "info"], calls
+    assert not any("could not refresh" in c[1] for c in calls if c[0] == "msg"), calls
+sys.modules["ida_hexrays"] = None  # 'import ida_hexrays' raises ImportError, as in IDA without the decompiler
+del calls[:], hexrays_calls[:]
+assert m.ApplyBTF().activate(None) == 1, calls
+assert hexrays_calls == [] and [c[0] for c in calls if c[0] in ("refresh", "info", "warn")] == ["refresh", "info"], calls
+assert not any("could not refresh" in c[1] for c in calls if c[0] == "msg"), calls
+del sys.modules["ida_hexrays"]
+print("stub test OK: decompiler cache cleared and views redrawn after the import; no ida_hexrays: redraw only")
 assert m.import_in_batches(["a;", "BAD;", "b;"], lambda t: t.count("BAD"), batch=2) == ["BAD;"]
 # lines with a zero count stay out of the dialog, in the Output window only (judge s178 item 5, review s179 MINOR 6)
 assert "Named 0 exported functions" not in message and "Kept as they were: 0" not in message, message
