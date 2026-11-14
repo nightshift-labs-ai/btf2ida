@@ -4,11 +4,12 @@
     "name": "btf2ida",
     "entryPoint": "btf2ida_entry.py",
     "version": "0.1.23",
-    "idaVersions": ">=9.0",
-    "description": "Apply a Linux kernel's own BTF in IDA with no debug package: finds BTF in vmlinux, a kernel module or a memory image, imports its types and applies function prototypes by name where the database has symbols. Not yet run in real IDA.",
+    "idaVersions": ">=9.1",
+    "description": "Linux kernel types and function prototypes from the kernel's own BTF (vmlinux, modules, memory images), no debug package needed; not yet run in real IDA.",
     "license": "MIT",
     "categories": [
-      "file-parsers-and-loaders"
+      "file-parsers-and-loaders",
+      "decompilation"
     ],
     "keywords": [
       "linux",

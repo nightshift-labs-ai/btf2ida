@@ -89,7 +89,7 @@ A Linux kernel without its debug package is mostly `__int64 a1`, and matching he
 hcli plugin install btf2ida
 ```
 
-Or copy this folder into your IDA `plugins` directory. IDA 9.0 or later. The plugin index can lag a day or more behind the [GitHub releases](https://github.com/nightshift-labs-ai/btf2ida/releases); if `hcli plugin status` shows an older version, install the release zip by URL as in [Try it](#try-it).
+Or copy this folder into your IDA `plugins` directory. IDA 9.1 or later (the IDA API names it uses are checked against the IDAPython stubs of 9.1 to 9.5; 9.0 is not checked). The plugin index can lag a day or more behind the [GitHub releases](https://github.com/nightshift-labs-ai/btf2ida/releases); if `hcli plugin status` shows an older version, install the release zip by URL as in [Try it](#try-it).
 
 ## Usage
 

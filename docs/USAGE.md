@@ -18,7 +18,7 @@ Running btf2ida again on the same database replaces the prototypes it set itself
 
 ## Headless, with idalib
 
-IDA 9.0 or newer; set up the `idapro` module as Hex-Rays describes:
+IDA 9.1 or newer; set up the `idapro` module as Hex-Rays describes:
 
 ```
 python3 tools/btf2ida_headless.py vmlinux

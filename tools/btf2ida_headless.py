@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BTF2IDA without the IDA window, through idalib (IDA 9.0 or newer).
+"""BTF2IDA without the IDA window, through idalib (IDA 9.1 or newer).
 
     python3 tools/btf2ida_headless.py <vmlinux or module.ko or memory export> [--vmlinux <vmlinux>] [--no-analysis] [--no-bitfields]
 
@@ -35,7 +35,7 @@ def main(argv=None):
     try:
         import idapro  # must be imported before any ida_* module
     except ImportError as error:
-        print("btf2ida_headless: idalib is not available (%s). It needs IDA 9.0 or newer; see the top of this file." % error, file=sys.stderr)
+        print("btf2ida_headless: idalib is not available (%s). btf2ida needs IDA 9.1 or newer; see the top of this file." % error, file=sys.stderr)
         return 2
     if idapro.open_database(args.input, not args.no_analysis) != 0:
         print("btf2ida_headless: IDA could not open %s" % args.input, file=sys.stderr)
