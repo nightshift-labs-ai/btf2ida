@@ -1036,9 +1036,10 @@ def wait_for_analysis():
 
 def refresh_decompiler():
     """After an import: drop the decompiler's cached pseudocode, so a function decompiled before the import (the
-    README's toy steps press F5 first) shows its new types when opened again, and redraw the views. Without the
-    decompiler (no ida_hexrays, or init_hexrays_plugin() false) only the redraw. A failure here is only logged: it
-    must not hide the summary."""
+    README's toy steps press F5 first) shows its new types when it is decompiled again (F5; an open pseudocode view is
+    not re-decompiled by itself), and redraw the views. Without the decompiler (no ida_hexrays, or
+    init_hexrays_plugin() false) only the redraw. A failure in either step is only logged and the other step still
+    runs: it must not hide the summary."""
     try:
         try:
             import ida_hexrays
@@ -1046,9 +1047,12 @@ def refresh_decompiler():
             ida_hexrays = None
         if ida_hexrays is not None and ida_hexrays.init_hexrays_plugin():
             ida_hexrays.clear_cached_cfuncs()
+    except Exception as error:  # noqa: BLE001
+        ida_kernwin.msg("[BTF2IDA] could not drop the decompiler's cached pseudocode (%s); press F5 again to see the new types\n" % error)
+    try:
         ida_kernwin.refresh_idaview_anyway()
     except Exception as error:  # noqa: BLE001
-        ida_kernwin.msg("[BTF2IDA] could not refresh the decompiler and the views (%s); press F5 again to see the new types\n" % error)
+        ida_kernwin.msg("[BTF2IDA] could not redraw the views (%s)\n" % error)
 
 
 class ApplyBTF(ida_kernwin.action_handler_t):

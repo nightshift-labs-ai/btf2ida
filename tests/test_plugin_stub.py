@@ -482,12 +482,22 @@ for usable, wanted in ((True, ["init", "clear"]), (False, ["init"])):
     assert m.ApplyBTF().activate(None) == 1, calls
     assert hexrays_calls == wanted, (usable, hexrays_calls)
     assert [c[0] for c in calls if c[0] in ("refresh", "info", "warn")] == ["refresh", "info"], calls
-    assert not any("could not refresh" in c[1] for c in calls if c[0] == "msg"), calls
+    assert not any("could not" in c[1] for c in calls if c[0] == "msg"), calls
 sys.modules["ida_hexrays"] = None  # 'import ida_hexrays' raises ImportError, as in IDA without the decompiler
 del calls[:], hexrays_calls[:]
 assert m.ApplyBTF().activate(None) == 1, calls
 assert hexrays_calls == [] and [c[0] for c in calls if c[0] in ("refresh", "info", "warn")] == ["refresh", "info"], calls
-assert not any("could not refresh" in c[1] for c in calls if c[0] == "msg"), calls
+assert not any("could not" in c[1] for c in calls if c[0] == "msg"), calls
+# review s190 j190 MINOR 2/3: clear_cached_cfuncs() raising is only logged; the views are still redrawn and the summary shows
+def _boom():
+    raise RuntimeError("boom")
+hx.clear_cached_cfuncs = _boom
+hx.init_hexrays_plugin = lambda flags=0: True
+sys.modules["ida_hexrays"] = hx
+del calls[:]
+assert m.ApplyBTF().activate(None) == 1, calls
+assert [c[0] for c in calls if c[0] in ("refresh", "info", "warn")] == ["refresh", "info"], calls
+assert any("could not drop the decompiler's cached pseudocode (boom)" in c[1] for c in calls if c[0] == "msg"), calls
 del sys.modules["ida_hexrays"]
 print("stub test OK: decompiler cache cleared and views redrawn after the import; no ida_hexrays: redraw only")
 assert m.import_in_batches(["a;", "BAD;", "b;"], lambda t: t.count("BAD"), batch=2) == ["BAD;"]
