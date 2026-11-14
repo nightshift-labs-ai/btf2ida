@@ -15,10 +15,11 @@ members, as in a union, names them all).
 
 A register holds an argument at the function's entry, after a full 64-bit `mov` from a register that holds it, and
 after a QWORD load of a member that is a pointer to a struct (then it holds that, for example `ctx->net`). It stops
-being tracked once it is overwritten: by any instruction that writes it (any part of it, also implicitly, such as
-rdx by `div`) or by a call, which clobbers rax, rcx, rdx, rsi, rdi and r8 to r11. Stack slots are not tracked. The
-scan follows the function's jumps: a register counts at an instruction only if every path from the entry leaves it
-holding the same value, so a block reached from several places is not judged by the code just above it.
+being tracked once it is overwritten: by an instruction that writes it (any part of it, or implicitly for the
+instructions in IMPLICIT, such as rdx by `div`) or by a call, which clobbers rax, rcx, rdx, rsi, rdi and r8 to r11.
+Stack slots are not tracked. The scan follows the function's jumps (and `loop`): a register counts at an instruction
+only if every path from the entry leaves it holding the same value, so a block reached from several places is not
+judged by the code just above it.
 
 Relocations matter in a .ko: it is not linked, so `objdump -d` alone shows the call to `__fentry__` at the start and
 the return through `__x86_return_thunk` as a call and a jump to the next instruction. The scan reads `objdump -d -r`
@@ -67,7 +68,10 @@ STRING_OPS = ("movs", "stos", "lods", "scas", "cmps")  # objdump writes their op
 IMPLICIT = {"mul": ("rax", "rdx"), "div": ("rax", "rdx"), "idiv": ("rax", "rdx"), "cqo": ("rdx",), "cdq": ("rdx",),
             "cwd": ("rdx",), "cdqe": ("rax",), "cwde": ("rax",), "cbw": ("rax",), "cmpxchg": ("rax",),
             "cpuid": ("rax", "rbx", "rcx", "rdx"), "rdtsc": ("rax", "rdx"), "rdmsr": ("rax", "rdx"),
-            "syscall": ("rax", "rcx", "r11"), "leave": ("rbp",)}
+            "syscall": ("rax", "rcx", "r11"), "leave": ("rbp",), "rdtscp": ("rax", "rdx", "rcx"),
+            "rdpmc": ("rax", "rdx"), "xgetbv": ("rax", "rdx"), "cmpxchg8b": ("rax", "rdx"),
+            "cmpxchg16b": ("rax", "rdx"), "lahf": ("rax",), "xlat": ("rax",), "xlatb": ("rax",), "loop": ("rcx",),
+            "loope": ("rcx",), "loopne": ("rcx",)}
 WIDTHS = {"BYTE": 1, "WORD": 2, "DWORD": 4, "QWORD": 8, "TBYTE": 10, "XMMWORD": 16, "YMMWORD": 32, "ZMMWORD": 64}
 MEMORY = re.compile(r"^(?:(\w+) PTR )?(?:[a-z]s:)?\[(\w+)(?:\+(\w+)\*(\d+))?(?:([+-])0x([0-9a-f]+))?\]$")
 
@@ -108,14 +112,15 @@ def successors(code, where, index):
     address, mnemonic, ops, relocs = code[index]
     if mnemonic.startswith("ret") or mnemonic in ("int3", "hlt"):
         return []
-    target = re.fullmatch(r"([0-9a-f]+) <[^>]*>", ops[0]) if mnemonic.startswith("j") and ops else None
+    branch = mnemonic.startswith(("j", "loop"))
+    target = re.fullmatch(r"([0-9a-f]+) <[^>]*>", ops[0]) if branch and ops else None
     jump = []
     if target is not None and not relocs and int(target.group(1), 16) in where:
         jump = [where[int(target.group(1), 16)]]
     if mnemonic == "jmp":  # relocated (a return thunk, a tail call), indirect or out of the function: it leaves
         return jump
     following = [index + 1] if index + 1 < len(code) else []
-    return jump + following if mnemonic.startswith("j") else following
+    return jump + following if branch else following
 
 
 class Kit:
@@ -227,7 +232,7 @@ def step(kit, insn, before):
     dest = toy.family(ops[0]) if ops and mnemonic not in NO_DEST and not mnemonic.startswith("j") else None
     if dest:
         written.add(dest)
-    if mnemonic in ("xchg", "xadd") and len(ops) == 2 and toy.family(ops[1]):
+    if mnemonic in ("xchg", "xadd", "mulx") and len(ops) >= 2 and toy.family(ops[1]):  # mulx: two destinations
         written.add(toy.family(ops[1]))
     value = None
     if mnemonic == "mov" and len(ops) == 2 and ops[0] in REG64:
@@ -308,7 +313,14 @@ SELF_TEST = [
     ("a struct pointer loaded from a member is followed",
      [(0x0, "mov", ["rax", "QWORD PTR [rdi+0x20]"], []), (0x4, "mov", ["rdx", "QWORD PTR [rax+0x8]"], [])],
      "dev->ops->close"),
+    ("loop is a branch", [(0x0, "loop", ["3 <L>"], []), (0x2, "ret", [], []),
+                          (0x3, "mov", ["eax", "DWORD PTR [rdi+0xc]"], [])], "dev->state"),
 ]
+SELF_TEST += [("%s writes %s" % (mnemonic, reg), [(0x0, "mov", [reg, "rdi"], []), (0x3, mnemonic, ops, []),
+                                                  (0x5, "mov", ["eax", "DWORD PTR [%s+0xc]" % reg], [])], None)
+              for mnemonic, ops, reg in (("div", ["r9"], "rdx"), ("rdtscp", [], "rcx"), ("lahf", [], "rax"),
+                                         ("cmpxchg16b", ["XMMWORD PTR [r9]"], "rdx"), ("loop", ["5 <L>"], "rcx"),
+                                         ("xlat", ["BYTE PTR ds:[rbx]"], "rax"), ("mulx", ["r8", "rsi", "r9"], "rsi"))]
 
 
 def self_test():
