@@ -5,7 +5,7 @@ Taken from the GitHub release notes. Newest first.
 ## v0.1.25 (2026-11-20)
 
 - README, "A real module in two minutes": step 1 now also presses F5 in `nft_data_init`, and a new step 4 says what to compare after the import, with three lines of the new `docs/kit_members.txt`. That file has 19 lines for `nft_data_init`: each access through its arguments (and one address, `nla + 1`) with the member it touches, for example `[rdx+0x4]` as `desc->size` and `[rax+0xc64]` as `ctx->net->nft.gencursor`. It is derived offline from `objdump -d -r` and the BTF by the new `tests/check_kit_members.py nf_tables.ko vmlinux.btf`, not IDA output. Not run in IDA.
-- README: the "Expected" paragraph names `ctx->net->nft.gencursor` in `nf_tables.ko` in place of the `nla_put` prototype (still in module step 3); the bitfield note of toy step 3 and module step 3 are shorter.
+- README: the "Expected" paragraph names `ctx->net->nft.gencursor` in `nf_tables.ko` in place of the `nla_put` prototype (still in module step 3); toy step 3's bitfield note is shorter, and module step 3 says the prototype was measured on a fake database.
 
 ## v0.1.24 (2026-11-17)
 
