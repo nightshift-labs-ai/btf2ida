@@ -17,7 +17,7 @@ Open a Linux kernel in IDA and get its **real types and function prototypes** wi
 Install the current release:
 
 ```
-hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/tags/v0.1.24.zip
+hcli plugin install https://github.com/nightshift-labs-ai/btf2ida/archive/refs/tags/v0.1.25.zip
 ```
 
 ### The toy: nothing to download
